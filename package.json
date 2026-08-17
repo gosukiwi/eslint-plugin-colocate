@@ -20,7 +20,8 @@
     "eslint": ">=9"
   },
   "dependencies": {
-    "minimatch": "^10"
+    "minimatch": "^10",
+    "typescript": "^5"
   },
   "devDependencies": {
     "@types/node": "^22.15.29",

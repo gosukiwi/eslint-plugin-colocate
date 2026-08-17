@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
+import ts from "typescript";
 
 export const SOURCE_EXTS = [
   ".ts",
@@ -86,12 +87,69 @@ function extractSpecifiers(content: string): string[] {
   return specifiers;
 }
 
-export function resolveSpecifier(
-  specifier: string,
-  fromDir: string,
-): string | undefined {
-  const base = path.resolve(fromDir, specifier);
+export interface PathAlias {
+  prefix: string;
+  mappedPrefix: string;
+}
 
+function loadPathAliases(rootDir: string): PathAlias[] {
+  const configPath = ts.findConfigFile(rootDir, (fileName) =>
+    ts.sys.fileExists(fileName),
+  );
+  if (configPath === undefined) {
+    return [];
+  }
+
+  const { config, error } = ts.readConfigFile(configPath, (fileName) =>
+    ts.sys.readFile(fileName),
+  );
+  if (error !== undefined || config === undefined) {
+    return [];
+  }
+
+  const compilerOptions = config.compilerOptions as
+    | { baseUrl?: string; paths?: Record<string, string[]> }
+    | undefined;
+  if (
+    compilerOptions === undefined ||
+    compilerOptions.baseUrl === undefined ||
+    compilerOptions.paths === undefined
+  ) {
+    return [];
+  }
+
+  const baseUrl = path.resolve(path.dirname(configPath), compilerOptions.baseUrl);
+  const aliases: PathAlias[] = [];
+
+  for (const [pattern, targets] of Object.entries(compilerOptions.paths)) {
+    const star = pattern.indexOf("*");
+    if (star === -1 || targets === undefined || targets[0] === undefined) {
+      continue;
+    }
+    const prefix = pattern.slice(0, star);
+    const target = targets[0];
+    const targetStar = target.indexOf("*");
+    const mappedPrefix =
+      targetStar === -1 ? target : target.slice(0, targetStar);
+    aliases.push({
+      prefix,
+      mappedPrefix: path.resolve(baseUrl, mappedPrefix),
+    });
+  }
+
+  return aliases;
+}
+
+function mapAlias(specifier: string, aliases: PathAlias[]): string | undefined {
+  for (const alias of aliases) {
+    if (specifier.startsWith(alias.prefix)) {
+      return path.join(alias.mappedPrefix, specifier.slice(alias.prefix.length));
+    }
+  }
+  return undefined;
+}
+
+function probeResolvedPath(base: string): string | undefined {
   if (fs.existsSync(base)) {
     const stat = fs.statSync(base);
     if (stat.isFile() && isSourceFile(base)) {
@@ -116,6 +174,25 @@ export function resolveSpecifier(
   return undefined;
 }
 
+export function resolveSpecifier(
+  specifier: string,
+  fromDir: string,
+  aliases: PathAlias[] = [],
+): string | undefined {
+  let base: string;
+  if (specifier.startsWith(".")) {
+    base = path.resolve(fromDir, specifier);
+  } else {
+    const mapped = mapAlias(specifier, aliases);
+    if (mapped === undefined) {
+      return undefined;
+    }
+    base = mapped;
+  }
+
+  return probeResolvedPath(base);
+}
+
 export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   const resolvedRoot = fs.realpathSync(rootDir);
   const files: string[] = [];
@@ -124,17 +201,14 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
 
   const fileSet = new Set(files);
   const importers = new Map<string, string[]>();
+  const aliases = loadPathAliases(resolvedRoot);
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf8");
     const fromDir = path.dirname(file);
 
     for (const specifier of extractSpecifiers(content)) {
-      if (!specifier.startsWith(".")) {
-        continue;
-      }
-
-      const resolved = resolveSpecifier(specifier, fromDir);
+      const resolved = resolveSpecifier(specifier, fromDir, aliases);
       if (resolved === undefined || !fileSet.has(resolved)) {
         continue;
       }

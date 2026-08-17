@@ -1,4 +1,9 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { ESLint } from "eslint";
+import tsParser from "@typescript-eslint/parser";
 import { describe, expect, it } from "vitest";
+import plugin from "../src/index.js";
 import { lintFixture } from "./helpers/lint-fixture.js";
 
 describe("ownership rule", () => {
@@ -150,6 +155,76 @@ describe("ownership rule", () => {
       messages.filter((m) => m.messageId === "privateOutsideOwner"),
     ).toEqual([
       { file: "src/pages/widget.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("reports privateOutsideOwner when the private import uses a tsconfig path alias", async () => {
+    const messages = await lintFixture("alias-private");
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not report privateOutsideOwner on a helper skipped by ignore globs", async () => {
+    const messages = await lintFixture("ignore-glob", {
+      ignore: ["**/helper.ts"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([]);
+  });
+
+  it("reports privateOutsideOwner when linting only the helper file", async () => {
+    const cwd = path.join(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "fixtures/private-sibling",
+    );
+    const eslint = new ESLint({
+      cwd,
+      overrideConfigFile: true,
+      overrideConfig: [
+        {
+          files: ["**/*.{js,jsx,ts,tsx,mts,cts,mjs,cjs}"],
+          plugins: {
+            "file-ownership-lint": plugin,
+          },
+          rules: {
+            "file-ownership-lint/ownership": ["error", {}],
+          },
+          languageOptions: {
+            parser: tsParser,
+            parserOptions: {
+              sourceType: "module",
+              ecmaVersion: 2022,
+            },
+          },
+        },
+      ],
+    });
+
+    const results = await eslint.lintFiles(["src/pages/helper.ts"]);
+    const messages: { file: string; messageId: string }[] = [];
+
+    for (const result of results) {
+      for (const message of result.messages) {
+        if (
+          message.ruleId === "file-ownership-lint/ownership" &&
+          message.messageId
+        ) {
+          messages.push({
+            file: path.relative(cwd, result.filePath),
+            messageId: message.messageId,
+          });
+        }
+      }
+    }
+
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
     ]);
   });
 });
