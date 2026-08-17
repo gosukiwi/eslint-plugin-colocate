@@ -335,12 +335,8 @@ function readTsconfigStamp(rootDir: string): TsconfigStamp | null {
 function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
   const current = readTsconfigStamp(rootDir);
   const prev = cached.tsconfig;
-
-  if (prev === null && current === null) {
-    return false;
-  }
   if (prev === null || current === null) {
-    return true;
+    return prev !== current;
   }
   return prev.path !== current.path || prev.mtimeMs !== current.mtimeMs;
 }
@@ -367,16 +363,16 @@ function needsRebuild(
   ignoreGlobs: string[],
 ): boolean {
   const prev = cached.stamps.get(currentFile);
-  if (prev !== undefined) {
-    try {
-      const stat = fs.statSync(currentFile);
-      return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
-    } catch {
-      return true;
-    }
+  if (prev === undefined) {
+    return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
   }
 
-  return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
+  try {
+    const stat = fs.statSync(currentFile);
+    return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
+  } catch {
+    return true;
+  }
 }
 
 export function getGraph(
@@ -386,13 +382,12 @@ export function getGraph(
 ): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
   const cached = cache.get(key);
-  if (cached !== undefined) {
-    if (
-      !tsconfigNeedsRebuild(cached, rootDir) &&
-      !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
-    ) {
-      return cached.graph;
-    }
+  if (
+    cached !== undefined &&
+    !tsconfigNeedsRebuild(cached, rootDir) &&
+    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
+  ) {
+    return cached.graph;
   }
 
   const graph = buildGraph(rootDir, ignoreGlobs);
