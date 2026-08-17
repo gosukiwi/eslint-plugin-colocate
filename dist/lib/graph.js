@@ -118,12 +118,15 @@ function loadPathAliases(rootDir) {
         return [];
     }
     const compilerOptions = config.compilerOptions;
-    if (compilerOptions === undefined ||
-        compilerOptions.baseUrl === undefined ||
-        compilerOptions.paths === undefined) {
+    if (compilerOptions === undefined || compilerOptions.paths === undefined) {
         return [];
     }
-    const baseUrl = path.resolve(path.dirname(configPath), compilerOptions.baseUrl);
+    // TypeScript 4.1 and later allow `paths` without `baseUrl`, in which case
+    // targets resolve relative to the directory holding the tsconfig.
+    const configDir = path.dirname(configPath);
+    const baseUrl = compilerOptions.baseUrl === undefined
+        ? configDir
+        : path.resolve(configDir, compilerOptions.baseUrl);
     const aliases = [];
     for (const [pattern, targets] of Object.entries(compilerOptions.paths)) {
         const star = pattern.indexOf("*");
