@@ -1,11 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
-import { fingerprintPaths, resolveSpecifier, type Graph } from "./graph.js";
+import ts from "typescript";
+import {
+  fingerprintPaths,
+  parseSourceFile,
+  resolveSpecifier,
+  type Graph,
+} from "./graph.js";
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
-
-const RE_EXPORT_FROM_RE = /export\s+.*?\s+from\s+["']([^"']+)["']/g;
 
 const shellsByGraph = new WeakMap<Graph, Set<string>>();
 const layerDirsCache = new Map<string, { dirs: string[]; fingerprint: string }>();
@@ -13,24 +17,27 @@ const layerDirsCache = new Map<string, { dirs: string[]; fingerprint: string }>(
 export function countLocalReExports(indexFile: string, dir: string): number {
   const content = fs.readFileSync(indexFile, "utf8");
   const realDir = fs.realpathSync(dir);
+  const sourceFile = parseSourceFile(indexFile, content);
   let count = 0;
 
-  for (const match of content.matchAll(RE_EXPORT_FROM_RE)) {
-    const specifier = match[1];
-    if (!specifier.startsWith(".")) {
-      continue;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      const specifier = node.moduleSpecifier.text;
+      if (specifier.startsWith(".")) {
+        const resolved = resolveSpecifier(specifier, dir);
+        if (resolved !== undefined && path.dirname(resolved) === realDir) {
+          count += 1;
+        }
+      }
     }
+    ts.forEachChild(node, visit);
+  };
 
-    const resolved = resolveSpecifier(specifier, dir);
-    if (resolved === undefined) {
-      continue;
-    }
-
-    if (path.dirname(resolved) === realDir) {
-      count += 1;
-    }
-  }
-
+  visit(sourceFile);
   return count;
 }
 

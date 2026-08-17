@@ -27,10 +27,6 @@ export interface Graph {
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
 
-const FROM_RE = /\bfrom\s+["']([^"']+)["']/g;
-const SIDE_EFFECT_IMPORT_RE = /import\s+["']([^"']+)["']/g;
-const DYNAMIC_IMPORT_RE = /import\s*\(\s*["']([^"']+)["']\s*\)/g;
-
 export function isSourceFile(p: string): boolean {
   if (p.endsWith(".d.ts")) {
     return false;
@@ -75,19 +71,71 @@ function walkDir(
   }
 }
 
-function extractSpecifiers(content: string): string[] {
+function scriptKindFromFileName(fileName: string): ts.ScriptKind {
+  if (fileName.endsWith(".tsx")) {
+    return ts.ScriptKind.TSX;
+  }
+  if (fileName.endsWith(".jsx")) {
+    return ts.ScriptKind.JSX;
+  }
+  if (
+    fileName.endsWith(".js") ||
+    fileName.endsWith(".mjs") ||
+    fileName.endsWith(".cjs")
+  ) {
+    return ts.ScriptKind.JS;
+  }
+  return ts.ScriptKind.TS;
+}
+
+export function parseSourceFile(
+  fileName: string,
+  content: string,
+): ts.SourceFile {
+  return ts.createSourceFile(
+    fileName,
+    content,
+    ts.ScriptTarget.Latest,
+    /*setParentNodes*/ false,
+    scriptKindFromFileName(fileName),
+  );
+}
+
+function stringLiteralText(node: ts.Node | undefined): string | undefined {
+  if (node !== undefined && ts.isStringLiteral(node)) {
+    return node.text;
+  }
+  return undefined;
+}
+
+function extractSpecifiers(content: string, fileName: string): string[] {
+  const sourceFile = parseSourceFile(fileName, content);
   const specifiers: string[] = [];
 
-  for (const match of content.matchAll(FROM_RE)) {
-    specifiers.push(match[1]);
-  }
-  for (const match of content.matchAll(SIDE_EFFECT_IMPORT_RE)) {
-    specifiers.push(match[1]);
-  }
-  for (const match of content.matchAll(DYNAMIC_IMPORT_RE)) {
-    specifiers.push(match[1]);
-  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      const text = stringLiteralText(node.moduleSpecifier);
+      if (text !== undefined) {
+        specifiers.push(text);
+      }
+    } else if (ts.isExportDeclaration(node)) {
+      const text = stringLiteralText(node.moduleSpecifier);
+      if (text !== undefined) {
+        specifiers.push(text);
+      }
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword
+    ) {
+      const text = stringLiteralText(node.arguments[0]);
+      if (text !== undefined) {
+        specifiers.push(text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
 
+  visit(sourceFile);
   return specifiers;
 }
 
@@ -220,7 +268,7 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
     const content = fs.readFileSync(file, "utf8");
     const fromDir = path.dirname(file);
 
-    for (const specifier of extractSpecifiers(content)) {
+    for (const specifier of extractSpecifiers(content, file)) {
       const resolved = resolveSpecifier(specifier, fromDir, aliases);
       if (resolved === undefined || !fileSet.has(resolved)) {
         continue;

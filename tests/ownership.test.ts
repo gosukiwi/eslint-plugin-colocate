@@ -40,6 +40,13 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("reports mismatchedEntry when index re-exports one module with a multiline export", async () => {
+    const messages = await lintFixture("mismatch-index-multiline");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
   it("does not report mismatchedEntry for a namespace barrel with multiple re-exports", async () => {
     const messages = await lintFixture("namespace-barrel-ok");
     expect(sortMessages(messages)).toEqual([]);
