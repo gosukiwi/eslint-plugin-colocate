@@ -18,17 +18,26 @@ export interface OwnershipContext {
 const shellsByGraph = new WeakMap<Graph, Set<string>>();
 const layerDirsByGraph = new WeakMap<Graph, Map<string, string[]>>();
 
-export function collectLocalReExports(indexFile: string, dir: string): string[] {
+export interface ReExports {
+  /** Sibling modules in the same directory, one entry per module. */
+  local: string[];
+  /** Every re-exported module, including modules from elsewhere. */
+  total: number;
+}
+
+export function collectReExports(indexFile: string, dir: string): ReExports {
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
+  const realIndex = safeRealpath(indexFile);
   if (content === undefined || realDir === undefined) {
-    return [];
+    return { local: [], total: 0 };
   }
   const sourceFile = parseSourceFile(indexFile, content);
   // Keyed by module, not by declaration: the idiomatic value + type split
   // ("export { x } from './X'; export type { T } from './X';") re-exports one
   // sibling and must not look like a two-module namespace barrel.
-  const targets = new Set<string>();
+  const local = new Set<string>();
+  const all = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (
@@ -37,10 +46,13 @@ export function collectLocalReExports(indexFile: string, dir: string): string[] 
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       const specifier = node.moduleSpecifier.text;
-      if (specifier.startsWith(".")) {
-        const resolved = resolveSpecifier(specifier, dir);
-        if (resolved !== undefined && path.dirname(resolved) === realDir) {
-          targets.add(resolved);
+      const resolved = resolveSpecifier(specifier, dir);
+      // An index re-exporting itself ("export * from './index'") names no
+      // sibling at all.
+      if (resolved !== undefined && resolved !== realIndex) {
+        all.add(resolved);
+        if (specifier.startsWith(".") && path.dirname(resolved) === realDir) {
+          local.add(resolved);
         }
       }
     }
@@ -48,11 +60,11 @@ export function collectLocalReExports(indexFile: string, dir: string): string[] 
   };
 
   visit(sourceFile);
-  return [...targets];
+  return { local: [...local], total: all.size };
 }
 
 export function countLocalReExports(indexFile: string, dir: string): number {
-  return collectLocalReExports(indexFile, dir).length;
+  return collectReExports(indexFile, dir).local.length;
 }
 
 function isNamespaceBarrel(filePath: string): boolean {

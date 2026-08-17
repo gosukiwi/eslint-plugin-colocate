@@ -4,7 +4,13 @@ export interface OwnershipContext {
     rootDir: string;
     layerDirs: string[];
 }
-export declare function collectLocalReExports(indexFile: string, dir: string): string[];
+export interface ReExports {
+    /** Sibling modules in the same directory, one entry per module. */
+    local: string[];
+    /** Every re-exported module, including modules from elsewhere. */
+    total: number;
+}
+export declare function collectReExports(indexFile: string, dir: string): ReExports;
 export declare function countLocalReExports(indexFile: string, dir: string): number;
 export interface Owner {
     kind: "folder" | "standalone";

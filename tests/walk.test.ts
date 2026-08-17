@@ -71,17 +71,24 @@ describe("walking the tree", () => {
     expect(relFiles(dir, "src")).toEqual(["src/pages/helper.ts"]);
   });
 
-  it("follows a symlinked directory pointing outside the root", () => {
+  it("does not record files whose real path escapes the root", () => {
     const dir = project({
       "src/pages/helper.ts": "export const h = 1;\n",
       "vendor/Consumer.ts": 'import "../src/pages/helper";\nexport const c = 1;\n',
     });
     link(dir, "../../vendor", "src/pages/linked");
 
-    expect(relFiles(dir, "src")).toEqual([
-      "src/pages/helper.ts",
-      "vendor/Consumer.ts",
-    ]);
+    expect(relFiles(dir, "src")).toEqual(["src/pages/helper.ts"]);
+  });
+
+  it("does not let a symlinked entry file escape the root either", () => {
+    const dir = project({
+      "src/W/inner.ts": "export const i = 1;\n",
+      "elsewhere/W.ts": 'import "../src/W/inner";\nexport const w = 1;\n',
+    });
+    link(dir, "../../elsewhere/W.ts", "src/W/W.ts");
+
+    expect(relFiles(dir, "src")).toEqual(["src/W/inner.ts"]);
   });
 
   it("does not record a file as importing itself through a wrong-case specifier", () => {
@@ -91,6 +98,42 @@ describe("walking the tree", () => {
     const graph = buildGraph(path.join(dir, "src"), []);
 
     expect(graph.importers.size).toBe(0);
+  });
+});
+
+describe("specifier extraction", () => {
+  it("follows a real require() call", () => {
+    const dir = project({
+      "src/A/A.ts": 'const h = require("../help");\nexport const a = h;\n',
+      "src/help.ts": "export const h = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/help.ts"))).toEqual([
+      path.join(dir, "src/A/A.ts"),
+    ]);
+  });
+
+  it("ignores a require call bound to a local function", () => {
+    const dir = project({
+      "src/A/A.ts":
+        'function require(_s: string): unknown {\n  return null;\n}\nexport const a = require("../help");\n',
+      "src/help.ts": "export const h = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/help.ts"))).toBeUndefined();
+  });
+
+  it("ignores a require call bound to a parameter", () => {
+    const dir = project({
+      "src/A/A.ts":
+        'export function A(require: (s: string) => unknown): unknown {\n  return require("../help");\n}\n',
+      "src/help.ts": "export const h = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/help.ts"))).toBeUndefined();
   });
 });
 
@@ -108,6 +151,18 @@ describe("resolution fallbacks", () => {
     expect(
       graph.importers.get(path.join(dir, "src/pages/helper.cts")),
     ).toEqual([path.join(dir, "src/pages/MyPage/MyPage.ts")]);
+  });
+
+  it("resolves a directory import onto an index file the compiler declines", () => {
+    const dir = project({
+      "src/app.ts": 'import "./Foo";\n',
+      "src/Foo/index.cts": "export const i = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/Foo/index.cts"))).toEqual([
+      path.join(dir, "src/app.ts"),
+    ]);
   });
 
   it("still resolves relative imports onto those extensions", () => {
@@ -135,6 +190,59 @@ describe("caching with a symlinked root", () => {
 
     const first = getGraph(root, ["aaa/**"], current);
     expect(getGraph(root, ["aaa/**"], current)).toBe(first);
+  });
+
+  it("rebuilds when a file changes size but keeps its timestamp", () => {
+    const dir = project({
+      "src/a.ts": 'import "./b";\n',
+      "src/b.ts": "export const b = 1;\n",
+    });
+    const root = path.join(dir, "src");
+    const current = path.join(dir, "src/a.ts");
+    const other = path.join(dir, "src/b.ts");
+
+    // Pinned to an exact whole-second timestamp both times, so mtime is
+    // genuinely unchanged and only the size differs.
+    const pinned = 1_000_000;
+    fs.utimesSync(other, pinned, pinned);
+    const first = getGraph(root, [], current);
+
+    fs.writeFileSync(other, "export const b = 222222222;\n");
+    fs.utimesSync(other, pinned, pinned);
+
+    expect(getGraph(root, [], current)).not.toBe(first);
+  });
+
+  it("rebuilds when a config reached through extends changes", () => {
+    const dir = project({
+      "tsconfig.base.json": JSON.stringify({ compilerOptions: {} }),
+      "tsconfig.json": JSON.stringify({ extends: "./tsconfig.base.json" }),
+      "src/a.ts": 'import "./b";\n',
+      "src/b.ts": "export const b = 1;\n",
+    });
+    const root = path.join(dir, "src");
+    const current = path.join(dir, "src/a.ts");
+
+    const first = getGraph(root, [], current);
+    const later = new Date(Date.now() + 4000);
+    fs.utimesSync(path.join(dir, "tsconfig.base.json"), later, later);
+
+    expect(getGraph(root, [], current)).not.toBe(first);
+  });
+
+  it("reuses the cached graph when linting a file the walk skipped", () => {
+    const dir = project({
+      "src/main.ts": "export const m = 1;\n",
+      "src/gen/Foo.ts": "export const f = 1;\n",
+      "src/dist/bundle.ts": "export const b = 1;\n",
+    });
+    const root = path.join(dir, "src");
+
+    const first = getGraph(root, ["gen"], path.join(dir, "src/main.ts"));
+    expect(getGraph(root, ["gen"], path.join(dir, "src/gen/Foo.ts"))).toBe(first);
+    expect(getGraph(root, ["gen"], path.join(dir, "src/dist/bundle.ts"))).toBe(
+      first,
+    );
   });
 
   it("reuses the cached graph when the root is reached through a symlink", () => {

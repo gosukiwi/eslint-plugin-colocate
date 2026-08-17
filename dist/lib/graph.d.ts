@@ -8,6 +8,8 @@ export interface Graph {
 export declare const SKIP_DIRS: Set<string>;
 export declare function isSourceFile(p: string): boolean;
 export declare function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean;
+export declare function isOutsideRoot(relPath: string): boolean;
+export declare function isExcludedPath(relPath: string, ignoreGlobs: string[]): boolean;
 export declare function parseSourceFile(fileName: string, content: string): ts.SourceFile;
 export interface ResolutionSettings {
     options: ts.CompilerOptions;

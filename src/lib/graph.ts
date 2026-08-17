@@ -54,6 +54,34 @@ export function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean {
   return ignoreGlobs.some((glob) => minimatch(normalized, glob));
 }
 
+export function isOutsideRoot(relPath: string): boolean {
+  return (
+    relPath === "" ||
+    relPath === ".." ||
+    // Not startsWith("..") - a directory named "..data" (Kubernetes mounts one)
+    // is inside the root.
+    relPath.startsWith(".." + path.sep) ||
+    path.isAbsolute(relPath)
+  );
+}
+
+// A file is excluded when it, or any directory above it, is skipped or ignored -
+// which is what walkDir does as it descends. Checking only the file's own path
+// let an ignore glob naming a directory ("gen" rather than "gen/**") pass, and
+// never consulted SKIP_DIRS at all.
+export function isExcludedPath(relPath: string, ignoreGlobs: string[]): boolean {
+  const segments = relPath.split(path.sep);
+  for (let i = 1; i <= segments.length; i += 1) {
+    if (SKIP_DIRS.has(segments[i - 1])) {
+      return true;
+    }
+    if (matchesIgnore(segments.slice(0, i).join(path.sep), ignoreGlobs)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function shouldSkip(relPath: string, ignoreGlobs: string[]): boolean {
   return matchesIgnore(relPath, ignoreGlobs);
 }
@@ -111,12 +139,14 @@ function walkDir(
     if (realPath === undefined) {
       continue;
     }
-    // A link is also checked under the path it really points at, so ignoring a
-    // directory cannot be undone by reaching it through a link, and a link onto
-    // an ancestor of the root cannot drag the entire tree above root into the
-    // graph.
+    // Links are checked under the path they really point at as well. Anything
+    // resolving outside the root stays out of the graph: such files cannot be
+    // reported (they are outside root) yet would still act as importers and as
+    // owners, which turned a linked-in directory into a phantom second owner and
+    // a symlinked entry file into a directory that no longer had an entry.
+    // Ignoring a directory also cannot be undone by reaching it through a link.
     if (realPath !== fullPath) {
-      if (isWithinRoot(rootDir, realPath)) {
+      if (!isWithinRoot(realPath, rootDir)) {
         continue;
       }
       if (shouldSkip(path.relative(rootDir, realPath), ignoreGlobs)) {
@@ -180,9 +210,43 @@ function stringLiteralText(node: ts.Node | undefined): string | undefined {
   return undefined;
 }
 
+function declaresRequire(sourceFile: ts.SourceFile): boolean {
+  let declared = false;
+
+  const visit = (node: ts.Node): void => {
+    if (declared) {
+      return;
+    }
+    const named = node as { name?: ts.Node };
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isVariableDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isBindingElement(node) ||
+        ts.isImportSpecifier(node) ||
+        ts.isImportClause(node) ||
+        ts.isClassDeclaration(node)) &&
+      named.name !== undefined &&
+      ts.isIdentifier(named.name) &&
+      named.name.text === "require"
+    ) {
+      declared = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return declared;
+}
+
 function extractSpecifiers(content: string, fileName: string): string[] {
   const sourceFile = parseSourceFile(fileName, content);
   const specifiers: string[] = [];
+  // `require` is only the CJS one when the file has not bound that name itself;
+  // a local function or parameter called require was producing phantom edges.
+  const requireIsCjs = !declaresRequire(sourceFile);
 
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node)) {
@@ -206,7 +270,8 @@ function extractSpecifiers(content: string, fileName: string): string[] {
     } else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) &&
+        (requireIsCjs &&
+          ts.isIdentifier(node.expression) &&
           node.expression.text === "require"))
     ) {
       const text = stringLiteralText(node.arguments[0]);
@@ -555,22 +620,13 @@ function isProductionGraphFile(
   }
 
   const relPath = path.relative(realRoot, currentFile);
-  if (relPath === "" || relPath.startsWith("..") || path.isAbsolute(relPath)) {
+  if (isOutsideRoot(relPath)) {
     return false;
   }
   if (!isSourceFile(currentFile) || isTestFile(currentFile)) {
     return false;
   }
-
-  const segments = relPath.split(path.sep);
-  for (let i = 1; i <= segments.length; i += 1) {
-    const prefix = segments.slice(0, i).join(path.sep);
-    if (SKIP_DIRS.has(segments[i - 1]) || matchesIgnore(prefix, ignoreGlobs)) {
-      return false;
-    }
-  }
-
-  return true;
+  return !isExcludedPath(relPath, ignoreGlobs);
 }
 
 // Every tracked file, not only the one being linted. ESLint lints one file at a

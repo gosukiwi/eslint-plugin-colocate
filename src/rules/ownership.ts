@@ -1,15 +1,17 @@
 import path from "node:path";
 import type { Rule } from "eslint";
-import { safeReaddir, safeRealpath } from "../lib/fs-safe.js";
+import { safeReaddir, safeRealpath, safeStat } from "../lib/fs-safe.js";
 import {
   getGraph,
+  isExcludedPath,
+  isOutsideRoot,
   isSourceFile,
   isTestFile,
   matchesIgnore,
   SKIP_DIRS,
 } from "../lib/graph.js";
 import {
-  collectLocalReExports,
+  collectReExports,
   getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
@@ -66,9 +68,15 @@ function countSourceFilesRecursive(
 // Only beside the file: a stylesheet several directories down is not a
 // companion, and treating it as one silently exempted the wrapper.
 function hasCompanionStylesheet(dir: string): boolean {
-  return safeReaddir(dir).some(
-    (entry) => entry.isFile() && isStylesheet(entry.name),
-  );
+  return safeReaddir(dir).some((entry) => {
+    if (!isStylesheet(entry.name)) {
+      return false;
+    }
+    // readdir reports a symlink as neither file nor directory.
+    return entry.isSymbolicLink()
+      ? (safeStat(path.join(dir, entry.name))?.isFile() ?? false)
+      : entry.isFile();
+  });
 }
 
 function isSingletonWrapperDirectory(
@@ -146,14 +154,7 @@ const rule: Rule.RuleModule = {
         }
 
         const relPath = path.relative(realRootDir, realFilename);
-        if (
-          relPath === "" ||
-          relPath.startsWith("..") ||
-          path.isAbsolute(relPath)
-        ) {
-          return;
-        }
-        if (matchesIgnore(relPath, ignore)) {
+        if (isOutsideRoot(relPath) || isExcludedPath(relPath, ignore)) {
           return;
         }
 
@@ -229,14 +230,23 @@ const rule: Rule.RuleModule = {
           return;
         }
 
-        const reExports = collectLocalReExports(realFilename, realDir);
-        if (reExports.length !== 1) {
+        const { local, total } = collectReExports(realFilename, realDir);
+        // An index that also re-exports modules from elsewhere is an aggregator,
+        // not a stand-in for one sibling: the message would name a "named entry
+        // file" that does not exist and dropping the barrel would lose the rest.
+        if (local.length !== 1 || total !== 1) {
+          return;
+        }
+        // Only modules the graph knows about, so the message cannot point at a
+        // file the user has excluded.
+        const graphFiles = new Set(graph.files);
+        if (!graphFiles.has(local[0])) {
           return;
         }
 
         // Re-exporting the directory's own named entry keeps the folder a real
         // owner; the barrel only makes `./Foo` resolve to `Foo/Foo.ts`.
-        const target = reExports[0];
+        const target = local[0];
         if (path.basename(target, path.extname(target)) === dirName) {
           return;
         }

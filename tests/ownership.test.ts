@@ -144,6 +144,68 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("does not report when a three-file cycle contains the entry", async () => {
+    const messages = await lintFixture("cycle-three");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not treat a file imported by a root and a page as shell", async () => {
+    const messages = await lintFixture("mixed-importers", { root: "src" });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/shared/fmt.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not let a namespace barrel own what it re-exports", async () => {
+    const messages = await lintFixture("barrel-consumer-ok", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("counts an index re-exporting a single sibling as a consumer", async () => {
+    const messages = await lintFixture("single-reexport-consumer", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/shared/thing.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not count an ignored consumer when deciding ownership", async () => {
+    const messages = await lintFixture("ignore-consumer", {
+      root: "src",
+      ignore: ["pages/Other/**"],
+    });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not report singletonFolder on the root directory itself", async () => {
+    const messages = await lintFixture("root-only-index", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports singletonFolder for a directory holding only an index file", async () => {
+    const messages = await lintFixture("singleton-index", { root: "src" });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it("does not count a test file as a directory's second source file", async () => {
+    const messages = await lintFixture("singleton-with-test", { root: "src" });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/Foo.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it("does not count files in a build directory as a second source file", async () => {
+    const messages = await lintFixture("singleton-with-dist", { root: "src" });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/Foo.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
   it("does not report when the entry imports itself", async () => {
     const messages = await lintFixture("self-import");
     expect(sortMessages(messages)).toEqual([]);
@@ -340,9 +402,15 @@ describe("ownership rule", () => {
     },
   );
 
-  it("sees consumers behind a symlinked directory", async () => {
+  // A link out of the root is not followed: such files cannot be reported (they
+  // are outside root) but would still act as owners, which produced phantom
+  // second owners and unactionable reports. The consumer inside vendor/ is
+  // therefore invisible, and helper.ts is judged on its in-root consumer alone.
+  it("does not count consumers behind a symlink out of the root", async () => {
     const messages = await lintFixture("symlinked-module", { root: "src" });
-    expect(sortMessages(messages)).toEqual([]);
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
   });
 
   it("does not report privateOutsideOwner on a layer module whose entry is an index file", async () => {
@@ -376,6 +444,41 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([
       { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
     ]);
+  });
+
+  it("does not report inside a directory excluded by an ignore glob", async () => {
+    const messages = await lintFixture("ignored-dir", {
+      root: "src",
+      ignore: ["gen"],
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report inside a build directory under the root", async () => {
+    const messages = await lintFixture("skipped-dir", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports inside a directory whose name begins with two dots", async () => {
+    const messages = await lintFixture("dotdot-dir", { root: "src" });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/..data/Foo/Foo.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it("does not report mismatchedEntry for a barrel that also re-exports foreign modules", async () => {
+    const messages = await lintFixture("aggregator-barrel", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report mismatchedEntry for an index that re-exports itself", async () => {
+    const messages = await lintFixture("self-reexport-barrel", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("treats a symlinked companion stylesheet as a companion", async () => {
+    const messages = await lintFixture("symlinked-style", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
   });
 
   it("does not report on a subject file skipped by ignore globs", async () => {

@@ -67,6 +67,24 @@ describe("robustness", () => {
     }
   });
 
+  it("stays silent instead of throwing when a source file is unreadable", async () => {
+    const dir = tempProject({
+      "src/main.ts": 'import "./App";\n',
+      "src/App.ts": "export const a = 1;\n",
+    });
+    const secret = path.join(dir, "src/App.ts");
+    try {
+      fs.chmodSync(secret, 0o000);
+      const results = await makeESLint(dir, { root: "src" }).lintFiles([
+        "src/main.ts",
+      ]);
+      expect(() => collectMessages(dir, results)).not.toThrow();
+    } finally {
+      fs.chmodSync(secret, 0o644);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not report on files outside the configured root", async () => {
     const messages = await lintFixture("outside-root", { root: "src" }, [
       "src",
