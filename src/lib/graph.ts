@@ -30,7 +30,7 @@ const FROM_RE = /\bfrom\s+["']([^"']+)["']/g;
 const SIDE_EFFECT_IMPORT_RE = /import\s+["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_RE = /import\s*\(\s*["']([^"']+)["']\s*\)/g;
 
-function isSourceFile(p: string): boolean {
+export function isSourceFile(p: string): boolean {
   if (p.endsWith(".d.ts")) {
     return false;
   }
@@ -86,7 +86,7 @@ function extractSpecifiers(content: string): string[] {
   return specifiers;
 }
 
-function resolveSpecifier(
+export function resolveSpecifier(
   specifier: string,
   fromDir: string,
 ): string | undefined {

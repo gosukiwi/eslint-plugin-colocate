@@ -35,4 +35,36 @@ describe("ownership rule", () => {
     const messages = await lintFixture("matching-entry-ok");
     expect(messages).toEqual([]);
   });
+
+  it("reports privateOutsideOwner when a private file sits outside its owner folder", async () => {
+    const messages = await lintFixture("private-sibling");
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not report privateOutsideOwner when a private file sits inside its owner folder", async () => {
+    const messages = await lintFixture("private-colocated-ok");
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([]);
+  });
+
+  it("reports privateOutsideOwner when the single owner is a standalone file", async () => {
+    const messages = await lintFixture("private-standalone-owner");
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not report privateOutsideOwner on a page imported only by a shell", async () => {
+    const messages = await lintFixture("page-not-pulled-into-app");
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([]);
+  });
 });

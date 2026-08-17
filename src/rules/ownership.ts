@@ -1,19 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Rule } from "eslint";
-import { getGraph, isTestFile, SOURCE_EXTS } from "../lib/graph.js";
+import { getGraph, isSourceFile, isTestFile } from "../lib/graph.js";
+import {
+  countLocalReExports,
+  isPrivateOutsideOwner,
+  resolveLayerDirectories,
+} from "../lib/owners.js";
 
 interface RuleOptions {
   root?: string;
   ignore?: string[];
   layers?: string[];
-}
-
-function isSourceFile(filePath: string): boolean {
-  if (filePath.endsWith(".d.ts")) {
-    return false;
-  }
-  return SOURCE_EXTS.some((ext) => filePath.endsWith(ext));
 }
 
 function isCssFile(filePath: string): boolean {
@@ -43,63 +41,6 @@ function countDirectoryFiles(dir: string): { sourceCount: number; cssCount: numb
   return { sourceCount, cssCount };
 }
 
-const RE_EXPORT_FROM_RE = /export\s+.*?\s+from\s+["']([^"']+)["']/g;
-
-function countLocalReExports(indexFile: string, dir: string): number {
-  const content = fs.readFileSync(indexFile, "utf8");
-  const realDir = fs.realpathSync(dir);
-  let count = 0;
-
-  for (const match of content.matchAll(RE_EXPORT_FROM_RE)) {
-    const specifier = match[1];
-    if (!specifier.startsWith(".")) {
-      continue;
-    }
-
-    const resolved = resolveSpecifier(specifier, dir);
-    if (resolved === undefined) {
-      continue;
-    }
-
-    const resolvedDir = path.dirname(resolved);
-    if (resolvedDir === realDir) {
-      count += 1;
-    }
-  }
-
-  return count;
-}
-
-function resolveSpecifier(
-  specifier: string,
-  fromDir: string,
-): string | undefined {
-  const base = path.resolve(fromDir, specifier);
-
-  if (fs.existsSync(base)) {
-    const stat = fs.statSync(base);
-    if (stat.isFile() && isSourceFile(base)) {
-      return fs.realpathSync(base);
-    }
-  }
-
-  for (const ext of SOURCE_EXTS) {
-    const candidate = base + ext;
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return fs.realpathSync(candidate);
-    }
-  }
-
-  for (const ext of SOURCE_EXTS) {
-    const candidate = path.join(base, "index" + ext);
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return fs.realpathSync(candidate);
-    }
-  }
-
-  return undefined;
-}
-
 const rule: Rule.RuleModule = {
   meta: {
     type: "problem",
@@ -117,7 +58,8 @@ const rule: Rule.RuleModule = {
       },
     ],
     messages: {
-      privateOutsideOwner: "",
+      privateOutsideOwner:
+        "File is imported by a single owner but sits outside that owner's folder.",
       sharedTooHigh: "",
       sharedInsideOwner: "",
       singletonFolder:
@@ -130,12 +72,14 @@ const rule: Rule.RuleModule = {
     const options = (context.options[0] ?? {}) as RuleOptions;
     const rootOption = options.root ?? "src";
     const ignore = options.ignore ?? [];
+    const layers = options.layers ?? [];
     const cwd = context.cwd;
     const rootDir = path.isAbsolute(rootOption)
       ? rootOption
       : path.resolve(cwd, rootOption);
 
     const realRootDir = fs.realpathSync(rootDir);
+    const layerDirs = resolveLayerDirectories(cwd, layers);
 
     return {
       Program(node) {
@@ -146,6 +90,8 @@ const rule: Rule.RuleModule = {
 
         const dir = path.dirname(filename);
         const realDir = fs.realpathSync(dir);
+        const realFilename = fs.realpathSync(filename);
+        const graph = getGraph(rootDir, ignore);
 
         if (realDir !== realRootDir) {
           const { sourceCount, cssCount } = countDirectoryFiles(dir);
@@ -157,13 +103,20 @@ const rule: Rule.RuleModule = {
           }
         }
 
+        if (
+          isPrivateOutsideOwner(realFilename, graph, realRootDir, layerDirs)
+        ) {
+          context.report({
+            node,
+            messageId: "privateOutsideOwner",
+          });
+        }
+
         const basename = path.basename(filename, path.extname(filename));
         if (basename !== "index") {
           return;
         }
 
-        const graph = getGraph(rootDir, ignore);
-        const realFilename = fs.realpathSync(filename);
         const dirName = path.basename(dir);
 
         const filesInDir = graph.files.filter((file) => {
