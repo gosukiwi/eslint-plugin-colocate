@@ -153,7 +153,16 @@ function mapAlias(specifier: string, aliases: PathAlias[]): string | undefined {
   return undefined;
 }
 
+const IMPORT_JS_EXTS = [".mjs", ".cjs", ".jsx", ".js"] as const;
+
 function probeResolvedPath(base: string): string | undefined {
+  for (const ext of IMPORT_JS_EXTS) {
+    if (base.endsWith(ext)) {
+      base = base.slice(0, -ext.length);
+      break;
+    }
+  }
+
   if (fs.existsSync(base)) {
     const stat = fs.statSync(base);
     if (stat.isFile() && isSourceFile(base)) {

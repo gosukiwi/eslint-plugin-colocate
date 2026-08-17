@@ -9,6 +9,11 @@ const fixtureRoot = path.join(
   "fixtures/graph",
 );
 
+const jsExtFixtureRoot = path.join(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "fixtures/graph-js-ext",
+);
+
 describe("getGraph", () => {
   it("builds production import graph and caches by root + ignoreGlobs", () => {
     const rootDir = fs.realpathSync(fixtureRoot);
@@ -24,5 +29,16 @@ describe("getGraph", () => {
 
     const cached = getGraph(rootDir, []);
     expect(cached).toBe(graph);
+  });
+
+  it("resolves relative imports with .js extension to TypeScript sources", () => {
+    const rootDir = fs.realpathSync(jsExtFixtureRoot);
+    const aPath = path.join(rootDir, "src/a.ts");
+    const bPath = path.join(rootDir, "src/b.ts");
+
+    const graph = getGraph(rootDir, []);
+
+    expect(graph.importers.get(bPath)).toEqual([aPath]);
+    expect(graph.files).toEqual([aPath, bPath]);
   });
 });
