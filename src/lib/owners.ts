@@ -3,16 +3,14 @@ import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
 import {
-  fingerprintPaths,
   parseSourceFile,
   resolveSpecifier,
+  SKIP_DIRS,
   type Graph,
 } from "./graph.js";
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
-
 const shellsByGraph = new WeakMap<Graph, Set<string>>();
-const layerDirsCache = new Map<string, { dirs: string[]; fingerprint: string }>();
+const layerDirsCache = new Map<string, string[]>();
 
 export function countLocalReExports(indexFile: string, dir: string): number {
   const content = fs.readFileSync(indexFile, "utf8");
@@ -163,6 +161,52 @@ function collectLayerDirs(
   }
 }
 
+function isSimpleLayerGlob(glob: string): boolean {
+  return glob.split("/").every((part) => {
+    if (part === "" || part === "." || part === "..") {
+      return false;
+    }
+    return part === "*" || !/[*?[\]{}()!]/.test(part);
+  });
+}
+
+function expandSimpleLayerGlob(cwd: string, glob: string): string[] {
+  const parts = glob.split("/").filter((part) => part !== "");
+  let currents = [cwd];
+
+  for (const part of parts) {
+    const next: string[] = [];
+    for (const dir of currents) {
+      if (part === "*") {
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
+            next.push(path.join(dir, entry.name));
+          }
+        }
+        continue;
+      }
+
+      const candidate = path.join(dir, part);
+      try {
+        if (fs.statSync(candidate).isDirectory()) {
+          next.push(candidate);
+        }
+      } catch {
+        continue;
+      }
+    }
+    currents = next;
+  }
+
+  return currents.map((dir) => fs.realpathSync(dir));
+}
+
 export function resolveLayerDirectories(
   cwd: string,
   layerGlobs: string[],
@@ -172,15 +216,32 @@ export function resolveLayerDirectories(
   }
 
   const key = cwd + "\0" + layerGlobs.join("\0");
-  const dirs: string[] = [];
-  collectLayerDirs(cwd, cwd, layerGlobs, dirs);
-  const fingerprint = fingerprintPaths(dirs) + "\0" + layerGlobs.join("\0");
   const cached = layerDirsCache.get(key);
-  if (cached !== undefined && cached.fingerprint === fingerprint) {
-    return cached.dirs;
+  if (cached !== undefined) {
+    return cached;
   }
 
-  layerDirsCache.set(key, { dirs, fingerprint });
+  const found = new Set<string>();
+  const needsWalk: string[] = [];
+  for (const glob of layerGlobs) {
+    if (isSimpleLayerGlob(glob)) {
+      for (const dir of expandSimpleLayerGlob(cwd, glob)) {
+        found.add(dir);
+      }
+    } else {
+      needsWalk.push(glob);
+    }
+  }
+  if (needsWalk.length > 0) {
+    const walked: string[] = [];
+    collectLayerDirs(cwd, cwd, needsWalk, walked);
+    for (const dir of walked) {
+      found.add(dir);
+    }
+  }
+
+  const dirs = [...found];
+  layerDirsCache.set(key, dirs);
   return dirs;
 }
 

@@ -26,7 +26,14 @@ export interface Graph {
   files: string[];
 }
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
+export const SKIP_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "coverage",
+  ".git",
+  ".hg",
+  ".svn",
+]);
 
 export function isSourceFile(p: string): boolean {
   if (p.endsWith(".d.ts")) {
@@ -287,46 +294,62 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return { importers, files };
 }
 
-export function fingerprintPaths(paths: string[]): string {
-  return [...paths]
-    .sort()
-    .map((p) => {
-      const real = fs.realpathSync(p);
-      const stat = fs.statSync(real);
-      return `${real}\0${stat.mtimeMs}\0${stat.size}`;
-    })
-    .join("\n");
+interface FileStamp {
+  mtimeMs: number;
+  size: number;
 }
 
-function fingerprintProductionTree(
+interface CachedGraph {
+  graph: Graph;
+  stamps: Map<string, FileStamp>;
+}
+
+const cache = new Map<string, CachedGraph>();
+
+function stampFiles(files: string[]): Map<string, FileStamp> {
+  const stamps = new Map<string, FileStamp>();
+  for (const file of files) {
+    const stat = fs.statSync(file);
+    stamps.set(file, { mtimeMs: stat.mtimeMs, size: stat.size });
+  }
+  return stamps;
+}
+
+function hintRequiresRebuild(cached: CachedGraph, hintFile: string): boolean {
+  let realHint: string;
+  try {
+    realHint = fs.realpathSync(hintFile);
+  } catch {
+    return false;
+  }
+
+  const prev = cached.stamps.get(realHint);
+  if (prev === undefined) {
+    return true;
+  }
+
+  try {
+    const stat = fs.statSync(realHint);
+    return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
+  } catch {
+    return true;
+  }
+}
+
+export function getGraph(
   rootDir: string,
   ignoreGlobs: string[],
-): string {
-  const resolvedRoot = fs.realpathSync(rootDir);
-  const files: string[] = [];
-  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
-  const parts = [fingerprintPaths(files)];
-  const configPath = ts.findConfigFile(resolvedRoot, (fileName) =>
-    ts.sys.fileExists(fileName),
-  );
-  if (configPath !== undefined) {
-    const stat = fs.statSync(configPath);
-    parts.push(`${configPath}\0${stat.mtimeMs}`);
-  }
-  return parts.join("\n");
-}
-
-const cache = new Map<string, { graph: Graph; fingerprint: string }>();
-
-export function getGraph(rootDir: string, ignoreGlobs: string[]): Graph {
+  hintFile?: string,
+): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
-  const fingerprint = fingerprintProductionTree(rootDir, ignoreGlobs);
   const cached = cache.get(key);
-  if (cached !== undefined && cached.fingerprint === fingerprint) {
-    return cached.graph;
+  if (cached !== undefined) {
+    if (hintFile === undefined || !hintRequiresRebuild(cached, hintFile)) {
+      return cached.graph;
+    }
   }
 
   const graph = buildGraph(rootDir, ignoreGlobs);
-  cache.set(key, { graph, fingerprint });
+  cache.set(key, { graph, stamps: stampFiles(graph.files) });
   return graph;
 }

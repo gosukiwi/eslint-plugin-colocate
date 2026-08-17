@@ -9,6 +9,11 @@ const fixtureRoot = path.join(
   "fixtures/layer-standalone",
 );
 
+const nestedLayerRoot = path.join(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "fixtures/layer-single-consumer",
+);
+
 describe("resolveLayerDirectories", () => {
   it("caches layer directories by cwd + layerGlobs", () => {
     const cwd = fs.realpathSync(fixtureRoot);
@@ -21,7 +26,7 @@ describe("resolveLayerDirectories", () => {
     expect(cached).toBe(dirs);
   });
 
-  it("rebuilds the cached layer directories when a layer dir mtime changes", () => {
+  it("returns the cached layer directories even when a layer dir mtime changes", () => {
     const cwd = fs.realpathSync(fixtureRoot);
     const uiDir = path.join(cwd, "src/ui");
 
@@ -32,7 +37,22 @@ describe("resolveLayerDirectories", () => {
     fs.utimesSync(uiDir, later, later);
 
     const second = resolveLayerDirectories(cwd, ["src/ui"]);
-    expect(second).not.toBe(first);
-    expect(second).toEqual([uiDir]);
+    expect(second).toBe(first);
+  });
+
+  it("expands single-segment * globs to child directories", () => {
+    const cwd = fs.realpathSync(nestedLayerRoot);
+    const buttonDir = path.join(cwd, "src/ui/Button");
+
+    const dirs = resolveLayerDirectories(cwd, ["src/ui/*"]);
+    expect(dirs).toEqual([buttonDir]);
+  });
+
+  it("resolves ** globs by walking from cwd", () => {
+    const cwd = fs.realpathSync(fixtureRoot);
+    const uiDir = path.join(cwd, "src/ui");
+
+    const dirs = resolveLayerDirectories(cwd, ["**/ui"]);
+    expect(dirs).toEqual([uiDir]);
   });
 });

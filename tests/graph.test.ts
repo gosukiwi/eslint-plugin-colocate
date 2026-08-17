@@ -47,7 +47,7 @@ describe("getGraph", () => {
     expect(cached).toBe(graph);
   });
 
-  it("rebuilds the cached graph when a production file mtime changes", () => {
+  it("rebuilds the cached graph when the hinted file mtime changes", () => {
     const rootDir = fs.realpathSync(fixtureRoot);
     const aPath = path.join(rootDir, "src/a.ts");
     const bPath = path.join(rootDir, "src/b.ts");
@@ -58,7 +58,10 @@ describe("getGraph", () => {
     const later = new Date(Date.now() + 2000);
     fs.utimesSync(bPath, later, later);
 
-    const second = getGraph(rootDir, []);
+    const unchangedHint = getGraph(rootDir, [], aPath);
+    expect(unchangedHint).toBe(first);
+
+    const second = getGraph(rootDir, [], bPath);
     expect(second).not.toBe(first);
     expect(second.importers.get(bPath)).toEqual([aPath]);
   });
