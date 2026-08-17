@@ -214,6 +214,21 @@ export function shouldSkipColocation(
   return getColocationConsumers(filePath, graph, shells).length === 0;
 }
 
+function collectConsumerOwners(
+  filePath: string,
+  graph: Graph,
+  rootDir: string,
+): Map<string, Owner> {
+  const shells = getShells(graph);
+  const consumers = getColocationConsumers(filePath, graph, shells);
+  const owners = new Map<string, Owner>();
+  for (const consumer of consumers) {
+    const owner = getOwner(consumer, graph, rootDir);
+    owners.set(owner.path, owner);
+  }
+  return owners;
+}
+
 export function isPrivateOutsideOwner(
   filePath: string,
   graph: Graph,
@@ -224,13 +239,7 @@ export function isPrivateOutsideOwner(
     return false;
   }
 
-  const shells = getShells(graph);
-  const consumers = getColocationConsumers(filePath, graph, shells);
-  const owners = new Map<string, Owner>();
-  for (const consumer of consumers) {
-    const owner = getOwner(consumer, graph, rootDir);
-    owners.set(owner.path, owner);
-  }
+  const owners = collectConsumerOwners(filePath, graph, rootDir);
 
   if (owners.size !== 1) {
     return false;
@@ -248,4 +257,53 @@ export function isPrivateOutsideOwner(
   }
 
   return filePath !== owner.path;
+}
+
+function ownerDir(owner: Owner): string {
+  return owner.kind === "folder" ? owner.path : path.dirname(owner.path);
+}
+
+function longestCommonAncestor(dirs: string[]): string {
+  const segments = dirs.map((dir) => dir.split(path.sep));
+  const minLen = Math.min(...segments.map((parts) => parts.length));
+  const common: string[] = [];
+  for (let i = 0; i < minLen; i++) {
+    const part = segments[0][i];
+    if (segments.every((parts) => parts[i] === part)) {
+      common.push(part);
+    } else {
+      break;
+    }
+  }
+  if (common.length === 0) {
+    return path.sep;
+  }
+  return common.join(path.sep);
+}
+
+export function getSharedColocationIssue(
+  filePath: string,
+  graph: Graph,
+  rootDir: string,
+  layerDirs: string[],
+): "sharedTooHigh" | "sharedInsideOwner" | undefined {
+  if (shouldSkipColocation(filePath, graph, layerDirs)) {
+    return undefined;
+  }
+
+  const owners = collectConsumerOwners(filePath, graph, rootDir);
+  if (owners.size < 2) {
+    return undefined;
+  }
+
+  const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
+  const lca = longestCommonAncestor(ownerDirs);
+  const containing = ownerDirs.filter((dir) => isInsideDir(filePath, dir));
+  if (containing.length === 1 && containing[0] !== lca) {
+    return "sharedInsideOwner";
+  }
+  if (filePath !== lca && !isInsideDir(filePath, lca)) {
+    return "sharedTooHigh";
+  }
+  return undefined;
 }

@@ -67,4 +67,40 @@ describe("ownership rule", () => {
       messages.filter((m) => m.messageId === "privateOutsideOwner"),
     ).toEqual([]);
   });
+
+  it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
+    const messages = await lintFixture("shared-too-high");
+    expect(
+      messages.filter((m) => m.messageId === "sharedTooHigh"),
+    ).toEqual([{ file: "src/helpers/fmt.ts", messageId: "sharedTooHigh" }]);
+  });
+
+  it("does not report shared placement when the file sits at the owners' common ancestor", async () => {
+    const messages = await lintFixture("shared-at-lca-ok");
+    expect(
+      messages.filter(
+        (m) =>
+          m.messageId === "sharedTooHigh" ||
+          m.messageId === "sharedInsideOwner",
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports sharedInsideOwner when a shared file sits inside one owner's folder", async () => {
+    const messages = await lintFixture("shared-inside-owner");
+    expect(
+      messages.filter((m) => m.messageId === "sharedInsideOwner"),
+    ).toEqual([{ file: "src/pages/A/fmt.ts", messageId: "sharedInsideOwner" }]);
+  });
+
+  it("does not report shared placement when the file sits in a common subdirectory", async () => {
+    const messages = await lintFixture("shared-common-subdir-ok");
+    expect(
+      messages.filter(
+        (m) =>
+          m.messageId === "sharedTooHigh" ||
+          m.messageId === "sharedInsideOwner",
+      ),
+    ).toEqual([]);
+  });
 });

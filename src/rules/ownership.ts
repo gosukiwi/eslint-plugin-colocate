@@ -4,6 +4,7 @@ import type { Rule } from "eslint";
 import { getGraph, isSourceFile, isTestFile } from "../lib/graph.js";
 import {
   countLocalReExports,
+  getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
 } from "../lib/owners.js";
@@ -60,8 +61,10 @@ const rule: Rule.RuleModule = {
     messages: {
       privateOutsideOwner:
         "File is imported by a single owner but sits outside that owner's folder.",
-      sharedTooHigh: "",
-      sharedInsideOwner: "",
+      sharedTooHigh:
+        "File is imported by multiple owners but sits above their common ancestor directory.",
+      sharedInsideOwner:
+        "File is imported by multiple owners but sits inside a single owner's folder.",
       singletonFolder:
         "Directory contains a single source file with no companion CSS; colocate or flatten the file.",
       mismatchedEntry:
@@ -109,6 +112,19 @@ const rule: Rule.RuleModule = {
           context.report({
             node,
             messageId: "privateOutsideOwner",
+          });
+        }
+
+        const sharedIssue = getSharedColocationIssue(
+          realFilename,
+          graph,
+          realRootDir,
+          layerDirs,
+        );
+        if (sharedIssue !== undefined) {
+          context.report({
+            node,
+            messageId: sharedIssue,
           });
         }
 
