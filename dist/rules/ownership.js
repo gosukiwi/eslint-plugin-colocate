@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getGraph, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
-import { countLocalReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
+import { collectLocalReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
 function isCssFile(filePath) {
     return path.basename(filePath).endsWith(".css");
 }
@@ -119,7 +119,6 @@ const rule = {
                     return fileDir === realDir;
                 });
                 const outsideImporters = new Set();
-                const outsideImportTargets = new Set();
                 let allOutsideImportsTargetIndex = true;
                 for (const fileInDir of filesInDir) {
                     const importers = graph.importers.get(fileInDir) ?? [];
@@ -129,7 +128,6 @@ const rule = {
                             continue;
                         }
                         outsideImporters.add(importer);
-                        outsideImportTargets.add(fileInDir);
                         if (fileInDir !== realFilename) {
                             allOutsideImportsTargetIndex = false;
                         }
@@ -138,19 +136,20 @@ const rule = {
                 if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
                     return;
                 }
-                for (const target of outsideImportTargets) {
-                    const fileBase = path.basename(target, path.extname(target));
-                    if (fileBase === dirName) {
-                        return;
-                    }
+                const reExports = collectLocalReExports(realFilename, dir);
+                if (reExports.length !== 1) {
+                    return;
                 }
-                const reExportCount = countLocalReExports(realFilename, dir);
-                if (reExportCount === 1) {
-                    context.report({
-                        node,
-                        messageId: "mismatchedEntry",
-                    });
+                // Re-exporting the directory's own named entry keeps the folder a real
+                // owner; the barrel only makes `./Foo` resolve to `Foo/Foo.ts`.
+                const target = reExports[0];
+                if (path.basename(target, path.extname(target)) === dirName) {
+                    return;
                 }
+                context.report({
+                    node,
+                    messageId: "mismatchedEntry",
+                });
             },
         };
     },

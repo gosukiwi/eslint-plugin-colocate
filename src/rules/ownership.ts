@@ -9,7 +9,7 @@ import {
   SKIP_DIRS,
 } from "../lib/graph.js";
 import {
-  countLocalReExports,
+  collectLocalReExports,
   getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
@@ -176,7 +176,6 @@ const rule: Rule.RuleModule = {
         });
 
         const outsideImporters = new Set<string>();
-        const outsideImportTargets = new Set<string>();
         let allOutsideImportsTargetIndex = true;
 
         for (const fileInDir of filesInDir) {
@@ -188,7 +187,6 @@ const rule: Rule.RuleModule = {
             }
 
             outsideImporters.add(importer);
-            outsideImportTargets.add(fileInDir);
             if (fileInDir !== realFilename) {
               allOutsideImportsTargetIndex = false;
             }
@@ -199,20 +197,22 @@ const rule: Rule.RuleModule = {
           return;
         }
 
-        for (const target of outsideImportTargets) {
-          const fileBase = path.basename(target, path.extname(target));
-          if (fileBase === dirName) {
-            return;
-          }
+        const reExports = collectLocalReExports(realFilename, dir);
+        if (reExports.length !== 1) {
+          return;
         }
 
-        const reExportCount = countLocalReExports(realFilename, dir);
-        if (reExportCount === 1) {
-          context.report({
-            node,
-            messageId: "mismatchedEntry",
-          });
+        // Re-exporting the directory's own named entry keeps the folder a real
+        // owner; the barrel only makes `./Foo` resolve to `Foo/Foo.ts`.
+        const target = reExports[0];
+        if (path.basename(target, path.extname(target)) === dirName) {
+          return;
         }
+
+        context.report({
+          node,
+          messageId: "mismatchedEntry",
+        });
       },
     };
   },

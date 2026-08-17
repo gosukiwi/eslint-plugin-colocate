@@ -12,11 +12,11 @@ import {
 const shellsByGraph = new WeakMap<Graph, Set<string>>();
 const layerDirsCache = new Map<string, string[]>();
 
-export function countLocalReExports(indexFile: string, dir: string): number {
+export function collectLocalReExports(indexFile: string, dir: string): string[] {
   const content = fs.readFileSync(indexFile, "utf8");
   const realDir = fs.realpathSync(dir);
   const sourceFile = parseSourceFile(indexFile, content);
-  let count = 0;
+  const targets: string[] = [];
 
   const visit = (node: ts.Node): void => {
     if (
@@ -28,7 +28,7 @@ export function countLocalReExports(indexFile: string, dir: string): number {
       if (specifier.startsWith(".")) {
         const resolved = resolveSpecifier(specifier, dir);
         if (resolved !== undefined && path.dirname(resolved) === realDir) {
-          count += 1;
+          targets.push(resolved);
         }
       }
     }
@@ -36,7 +36,11 @@ export function countLocalReExports(indexFile: string, dir: string): number {
   };
 
   visit(sourceFile);
-  return count;
+  return targets;
+}
+
+export function countLocalReExports(indexFile: string, dir: string): number {
+  return collectLocalReExports(indexFile, dir).length;
 }
 
 function isNamespaceBarrel(filePath: string): boolean {

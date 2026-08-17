@@ -5,11 +5,11 @@ import ts from "typescript";
 import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
 const shellsByGraph = new WeakMap();
 const layerDirsCache = new Map();
-export function countLocalReExports(indexFile, dir) {
+export function collectLocalReExports(indexFile, dir) {
     const content = fs.readFileSync(indexFile, "utf8");
     const realDir = fs.realpathSync(dir);
     const sourceFile = parseSourceFile(indexFile, content);
-    let count = 0;
+    const targets = [];
     const visit = (node) => {
         if (ts.isExportDeclaration(node) &&
             node.moduleSpecifier !== undefined &&
@@ -18,14 +18,17 @@ export function countLocalReExports(indexFile, dir) {
             if (specifier.startsWith(".")) {
                 const resolved = resolveSpecifier(specifier, dir);
                 if (resolved !== undefined && path.dirname(resolved) === realDir) {
-                    count += 1;
+                    targets.push(resolved);
                 }
             }
         }
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return count;
+    return targets;
+}
+export function countLocalReExports(indexFile, dir) {
+    return collectLocalReExports(indexFile, dir).length;
 }
 function isNamespaceBarrel(filePath) {
     const basename = path.basename(filePath, path.extname(filePath));

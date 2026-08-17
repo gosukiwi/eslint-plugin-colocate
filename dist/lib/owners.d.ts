@@ -1,4 +1,5 @@
 import { type Graph } from "./graph.js";
+export declare function collectLocalReExports(indexFile: string, dir: string): string[];
 export declare function countLocalReExports(indexFile: string, dir: string): number;
 export interface Owner {
     kind: "folder" | "standalone";

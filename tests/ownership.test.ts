@@ -57,6 +57,11 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("does not report mismatchedEntry when the index re-exports the named entry file", async () => {
+    const messages = await lintFixture("barrel-matching-entry-ok");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("reports privateOutsideOwner when a private file sits outside its owner folder", async () => {
     const messages = await lintFixture("private-sibling");
     expect(sortMessages(messages)).toEqual([
