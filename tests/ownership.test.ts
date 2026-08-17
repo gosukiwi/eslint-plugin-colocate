@@ -180,6 +180,14 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("resolves path aliases declared without baseUrl", async () => {
+    const messages = await lintFixture("alias-private-no-baseurl");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+      { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
   it("does not report privateOutsideOwner on a helper skipped by ignore globs", async () => {
     const messages = await lintFixture("ignore-glob", {
       ignore: ["**/helper.ts"],

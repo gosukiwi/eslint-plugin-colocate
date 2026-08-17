@@ -170,15 +170,17 @@ function loadPathAliases(rootDir: string): PathAlias[] {
   const compilerOptions = config.compilerOptions as
     | { baseUrl?: string; paths?: Record<string, string[]> }
     | undefined;
-  if (
-    compilerOptions === undefined ||
-    compilerOptions.baseUrl === undefined ||
-    compilerOptions.paths === undefined
-  ) {
+  if (compilerOptions === undefined || compilerOptions.paths === undefined) {
     return [];
   }
 
-  const baseUrl = path.resolve(path.dirname(configPath), compilerOptions.baseUrl);
+  // TypeScript 4.1 and later allow `paths` without `baseUrl`, in which case
+  // targets resolve relative to the directory holding the tsconfig.
+  const configDir = path.dirname(configPath);
+  const baseUrl =
+    compilerOptions.baseUrl === undefined
+      ? configDir
+      : path.resolve(configDir, compilerOptions.baseUrl);
   const aliases: PathAlias[] = [];
 
   for (const [pattern, targets] of Object.entries(compilerOptions.paths)) {
@@ -203,7 +205,10 @@ function loadPathAliases(rootDir: string): PathAlias[] {
 function mapAlias(specifier: string, aliases: PathAlias[]): string | undefined {
   for (const alias of aliases) {
     if (specifier.startsWith(alias.prefix)) {
-      return path.join(alias.mappedPrefix, specifier.slice(alias.prefix.length));
+      return path.join(
+        alias.mappedPrefix,
+        specifier.slice(alias.prefix.length),
+      );
     }
   }
   return undefined;
