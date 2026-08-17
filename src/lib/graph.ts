@@ -299,9 +299,15 @@ interface FileStamp {
   size: number;
 }
 
+interface TsconfigStamp {
+  path: string;
+  mtimeMs: number;
+}
+
 interface CachedGraph {
   graph: Graph;
   stamps: Map<string, FileStamp>;
+  tsconfig: TsconfigStamp | null;
 }
 
 const cache = new Map<string, CachedGraph>();
@@ -315,41 +321,85 @@ function stampFiles(files: string[]): Map<string, FileStamp> {
   return stamps;
 }
 
-function hintRequiresRebuild(cached: CachedGraph, hintFile: string): boolean {
-  let realHint: string;
-  try {
-    realHint = fs.realpathSync(hintFile);
-  } catch {
+function readTsconfigStamp(rootDir: string): TsconfigStamp | null {
+  const configPath = ts.findConfigFile(rootDir, (fileName) =>
+    ts.sys.fileExists(fileName),
+  );
+  if (configPath === undefined) {
+    return null;
+  }
+  const stat = fs.statSync(configPath);
+  return { path: configPath, mtimeMs: stat.mtimeMs };
+}
+
+function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
+  const current = readTsconfigStamp(rootDir);
+  const prev = cached.tsconfig;
+
+  if (prev === null && current === null) {
     return false;
   }
-
-  const prev = cached.stamps.get(realHint);
-  if (prev === undefined) {
+  if (prev === null || current === null) {
     return true;
   }
+  return prev.path !== current.path || prev.mtimeMs !== current.mtimeMs;
+}
 
-  try {
-    const stat = fs.statSync(realHint);
-    return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
-  } catch {
-    return true;
+function isProductionGraphFile(
+  currentFile: string,
+  rootDir: string,
+  ignoreGlobs: string[],
+): boolean {
+  const relPath = path.relative(rootDir, currentFile);
+  if (relPath === "" || relPath.startsWith("..") || path.isAbsolute(relPath)) {
+    return false;
   }
+  if (!isSourceFile(currentFile) || isTestFile(currentFile)) {
+    return false;
+  }
+  return !matchesIgnore(relPath, ignoreGlobs);
+}
+
+function needsRebuild(
+  cached: CachedGraph,
+  currentFile: string,
+  rootDir: string,
+  ignoreGlobs: string[],
+): boolean {
+  const prev = cached.stamps.get(currentFile);
+  if (prev !== undefined) {
+    try {
+      const stat = fs.statSync(currentFile);
+      return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
+    } catch {
+      return true;
+    }
+  }
+
+  return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
 }
 
 export function getGraph(
   rootDir: string,
   ignoreGlobs: string[],
-  hintFile?: string,
+  currentFile: string,
 ): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
   const cached = cache.get(key);
   if (cached !== undefined) {
-    if (hintFile === undefined || !hintRequiresRebuild(cached, hintFile)) {
+    if (
+      !tsconfigNeedsRebuild(cached, rootDir) &&
+      !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
+    ) {
       return cached.graph;
     }
   }
 
   const graph = buildGraph(rootDir, ignoreGlobs);
-  cache.set(key, { graph, stamps: stampFiles(graph.files) });
+  cache.set(key, {
+    graph,
+    stamps: stampFiles(graph.files),
+    tsconfig: readTsconfigStamp(rootDir),
+  });
   return graph;
 }
