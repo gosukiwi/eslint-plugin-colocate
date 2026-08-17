@@ -175,6 +175,13 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("does not report on a subject file skipped by ignore globs", async () => {
+    const messages = await lintFixture("ignore-subject", {
+      ignore: ["**/Foo.ts"],
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("reports privateOutsideOwner when linting only the helper file", async () => {
     const cwd = path.join(
       fileURLToPath(new URL(".", import.meta.url)),

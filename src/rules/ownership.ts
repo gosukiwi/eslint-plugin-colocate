@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Rule } from "eslint";
-import { getGraph, isSourceFile, isTestFile } from "../lib/graph.js";
+import { getGraph, isSourceFile, isTestFile, matchesIgnore } from "../lib/graph.js";
 import {
   countLocalReExports,
   getSharedColocationIssue,
@@ -117,6 +117,11 @@ const rule: Rule.RuleModule = {
       Program(node) {
         const filename = context.filename;
         if (!isSourceFile(filename) || isTestFile(filename)) {
+          return;
+        }
+
+        const relPath = path.relative(rootDir, filename);
+        if (matchesIgnore(relPath, ignore)) {
           return;
         }
 

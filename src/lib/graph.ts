@@ -38,9 +38,13 @@ export function isSourceFile(p: string): boolean {
   return SOURCE_EXTS.some((ext) => p.endsWith(ext));
 }
 
-function shouldSkip(relPath: string, ignoreGlobs: string[]): boolean {
+export function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean {
   const normalized = relPath.split(path.sep).join("/");
   return ignoreGlobs.some((glob) => minimatch(normalized, glob));
+}
+
+function shouldSkip(relPath: string, ignoreGlobs: string[]): boolean {
+  return matchesIgnore(relPath, ignoreGlobs);
 }
 
 function walkDir(
