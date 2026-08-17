@@ -89,6 +89,11 @@ describe("ownership rule", () => {
           m.messageId === "sharedInsideOwner",
       ),
     ).toEqual([]);
+    expect(
+      messages.filter(
+        (m) => m.file === "src/pages/fmt.ts" && m.messageId === "singletonFolder",
+      ),
+    ).toEqual([]);
   });
 
   it("reports sharedInsideOwner when a shared file sits inside one owner's folder", async () => {
@@ -105,6 +110,13 @@ describe("ownership rule", () => {
         (m) =>
           m.messageId === "sharedTooHigh" ||
           m.messageId === "sharedInsideOwner",
+      ),
+    ).toEqual([]);
+    expect(
+      messages.filter(
+        (m) =>
+          m.file === "src/pages/common/fmt.ts" &&
+          m.messageId === "singletonFolder",
       ),
     ).toEqual([]);
   });

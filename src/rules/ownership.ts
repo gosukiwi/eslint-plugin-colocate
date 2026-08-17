@@ -15,20 +15,35 @@ interface RuleOptions {
   layers?: string[];
 }
 
+const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
+
 function isCssFile(filePath: string): boolean {
   return path.basename(filePath).endsWith(".css");
 }
 
-function countDirectoryFiles(dir: string): { sourceCount: number; cssCount: number } {
+function countDirectoryContentsRecursive(
+  dir: string,
+): { sourceCount: number; cssCount: number } {
   let sourceCount = 0;
   let cssCount = 0;
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || entry.name === "node_modules") {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
+      const nested = countDirectoryContentsRecursive(fullPath);
+      sourceCount += nested.sourceCount;
+      cssCount += nested.cssCount;
       continue;
     }
 
-    const fullPath = path.join(dir, entry.name);
+    if (!entry.isFile()) {
+      continue;
+    }
+
     if (isCssFile(fullPath)) {
       cssCount += 1;
       continue;
@@ -40,6 +55,20 @@ function countDirectoryFiles(dir: string): { sourceCount: number; cssCount: numb
   }
 
   return { sourceCount, cssCount };
+}
+
+function isSingletonWrapperDirectory(
+  dir: string,
+  filename: string,
+): boolean {
+  const { sourceCount, cssCount } = countDirectoryContentsRecursive(dir);
+  if (sourceCount !== 1 || cssCount !== 0) {
+    return false;
+  }
+
+  const dirName = path.basename(dir);
+  const fileBasename = path.basename(filename, path.extname(filename));
+  return fileBasename === dirName || fileBasename === "index";
 }
 
 const rule: Rule.RuleModule = {
@@ -96,14 +125,11 @@ const rule: Rule.RuleModule = {
         const realFilename = fs.realpathSync(filename);
         const graph = getGraph(rootDir, ignore);
 
-        if (realDir !== realRootDir) {
-          const { sourceCount, cssCount } = countDirectoryFiles(dir);
-          if (sourceCount === 1 && cssCount === 0) {
-            context.report({
-              node,
-              messageId: "singletonFolder",
-            });
-          }
+        if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
+          context.report({
+            node,
+            messageId: "singletonFolder",
+          });
         }
 
         if (
