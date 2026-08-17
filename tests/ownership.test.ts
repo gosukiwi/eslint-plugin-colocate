@@ -89,6 +89,30 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("does not report when an import cycle leaves no importer-free entry", async () => {
+    const messages = await lintFixture("cycle-entry");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report when the entry imports itself", async () => {
+    const messages = await lintFixture("self-import");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports a page behind a multi-hop bootstrap chain without the shells option", async () => {
+    const messages = await lintFixture("shell-chain");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/Home/Home.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("treats files matched by the shells option as app shell", async () => {
+    const messages = await lintFixture("shell-chain", {
+      shells: ["src/*.ts"],
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
     const messages = await lintFixture("shared-too-high");
     expect(sortMessages(messages)).toEqual([

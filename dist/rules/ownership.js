@@ -54,6 +54,7 @@ const rule = {
                     root: { type: "string" },
                     ignore: { type: "array", items: { type: "string" } },
                     layers: { type: "array", items: { type: "string" } },
+                    shells: { type: "array", items: { type: "string" } },
                 },
             },
         ],
@@ -70,6 +71,7 @@ const rule = {
         const rootOption = options.root ?? ".";
         const ignore = options.ignore ?? [];
         const layers = options.layers ?? [];
+        const shellGlobs = options.shells ?? [];
         const cwd = context.cwd;
         const rootDir = path.isAbsolute(rootOption)
             ? rootOption
@@ -101,19 +103,25 @@ const rule = {
                 const dir = realDir;
                 const layerDirs = resolveLayerDirectories(cwd, layers);
                 const graph = getGraph(rootDir, ignore, realFilename);
+                const ownershipContext = {
+                    graph,
+                    rootDir: realRootDir,
+                    layerDirs,
+                    shellGlobs,
+                };
                 if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
                     context.report({
                         node,
                         messageId: "singletonFolder",
                     });
                 }
-                if (isPrivateOutsideOwner(realFilename, graph, realRootDir, layerDirs)) {
+                if (isPrivateOutsideOwner(realFilename, ownershipContext)) {
                     context.report({
                         node,
                         messageId: "privateOutsideOwner",
                     });
                 }
-                const sharedIssue = getSharedColocationIssue(realFilename, graph, realRootDir, layerDirs);
+                const sharedIssue = getSharedColocationIssue(realFilename, ownershipContext);
                 if (sharedIssue !== undefined) {
                     context.report({
                         node,

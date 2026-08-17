@@ -42,6 +42,16 @@ export default [
   `"src"` (or wherever your sources live) for a tighter, faster graph. Files
   outside `root` are never reported on.
 - **`layers`** — globs for layer directories. Immediate children are public peer owners: they may have a single consumer and may sit beside the trees that import them.
+- **`shells`** — globs (relative to `root`) for app-shell files: entry points,
+  routers, and the composition layer. A shell's imports do not make it an owner,
+  so pages it pulls in stay where they are.
+
+  By default the plugin infers the shell as the graph's entry points plus what
+  they import directly. That covers `main -> App -> pages/...`, but a longer
+  bootstrap chain such as `main -> router -> App -> pages/...` needs the option:
+  `shells: ["src/*.ts"]`. The inference cannot be extended further on its own —
+  `main -> App -> MyPage.ts -> helper.ts` is structurally identical to a
+  three-hop bootstrap chain, and there `MyPage.ts` genuinely owns `helper.ts`.
 - **`ignore`** — extra globs skipped as both subjects and consumers.
 
 With `layers: ["src/ui"]`, a module such as `src/ui/Button` may be imported by one or many pages and stays under the UI layer. `src/pages` is a normal tree: a private helper of one page must live inside that page's folder, not beside it.

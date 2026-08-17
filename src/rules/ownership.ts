@@ -19,6 +19,7 @@ interface RuleOptions {
   root?: string;
   ignore?: string[];
   layers?: string[];
+  shells?: string[];
 }
 
 function isCssFile(filePath: string): boolean {
@@ -88,6 +89,7 @@ const rule: Rule.RuleModule = {
           root: { type: "string" },
           ignore: { type: "array", items: { type: "string" } },
           layers: { type: "array", items: { type: "string" } },
+          shells: { type: "array", items: { type: "string" } },
         },
       },
     ],
@@ -109,6 +111,7 @@ const rule: Rule.RuleModule = {
     const rootOption = options.root ?? ".";
     const ignore = options.ignore ?? [];
     const layers = options.layers ?? [];
+    const shellGlobs = options.shells ?? [];
     const cwd = context.cwd;
     const rootDir = path.isAbsolute(rootOption)
       ? rootOption
@@ -146,6 +149,12 @@ const rule: Rule.RuleModule = {
         const dir = realDir;
         const layerDirs = resolveLayerDirectories(cwd, layers);
         const graph = getGraph(rootDir, ignore, realFilename);
+        const ownershipContext = {
+          graph,
+          rootDir: realRootDir,
+          layerDirs,
+          shellGlobs,
+        };
 
         if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
           context.report({
@@ -154,9 +163,7 @@ const rule: Rule.RuleModule = {
           });
         }
 
-        if (
-          isPrivateOutsideOwner(realFilename, graph, realRootDir, layerDirs)
-        ) {
+        if (isPrivateOutsideOwner(realFilename, ownershipContext)) {
           context.report({
             node,
             messageId: "privateOutsideOwner",
@@ -165,9 +172,7 @@ const rule: Rule.RuleModule = {
 
         const sharedIssue = getSharedColocationIssue(
           realFilename,
-          graph,
-          realRootDir,
-          layerDirs,
+          ownershipContext,
         );
         if (sharedIssue !== undefined) {
           context.report({

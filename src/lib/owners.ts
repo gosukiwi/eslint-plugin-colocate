@@ -3,13 +3,26 @@ import { minimatch } from "minimatch";
 import ts from "typescript";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import {
+  matchesIgnore,
   parseSourceFile,
   resolveSpecifier,
   SKIP_DIRS,
   type Graph,
 } from "./graph.js";
 
-const shellsByGraph = new WeakMap<Graph, Set<string>>();
+export interface OwnershipContext {
+  graph: Graph;
+  rootDir: string;
+  layerDirs: string[];
+  shellGlobs: string[];
+}
+
+interface ShellCache {
+  key: string;
+  shells: Set<string>;
+}
+
+const shellsByGraph = new WeakMap<Graph, ShellCache>();
 const layerDirsCache = new Map<string, string[]>();
 
 export function collectLocalReExports(indexFile: string, dir: string): string[] {
@@ -90,27 +103,142 @@ export function getOwner(filePath: string, graph: Graph, rootDir: string): Owner
   return { kind: "standalone", path: filePath };
 }
 
+function buildImports(graph: Graph): Map<string, string[]> {
+  const imports = new Map<string, string[]>();
+  for (const [target, importers] of graph.importers) {
+    for (const importer of importers) {
+      const existing = imports.get(importer);
+      if (existing === undefined) {
+        imports.set(importer, [target]);
+      } else {
+        existing.push(target);
+      }
+    }
+  }
+  return imports;
+}
+
+// Tarjan, iterative so a deep import chain cannot blow the stack.
+function stronglyConnectedIds(
+  nodes: string[],
+  edgesOf: (node: string) => string[],
+): Map<string, number> {
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const ids = new Map<string, number>();
+  let counter = 0;
+  let nextId = 0;
+
+  const push = (
+    node: string,
+    frames: { node: string; edges: string[]; next: number }[],
+  ): void => {
+    index.set(node, counter);
+    low.set(node, counter);
+    counter += 1;
+    stack.push(node);
+    onStack.add(node);
+    frames.push({ node, edges: edgesOf(node), next: 0 });
+  };
+
+  for (const start of nodes) {
+    if (index.has(start)) {
+      continue;
+    }
+
+    const frames: { node: string; edges: string[]; next: number }[] = [];
+    push(start, frames);
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+
+      if (frame.next < frame.edges.length) {
+        const child = frame.edges[frame.next];
+        frame.next += 1;
+        if (!index.has(child)) {
+          push(child, frames);
+        } else if (onStack.has(child)) {
+          low.set(
+            frame.node,
+            Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0),
+          );
+        }
+        continue;
+      }
+
+      frames.pop();
+      const parent = frames[frames.length - 1];
+      if (parent !== undefined) {
+        low.set(
+          parent.node,
+          Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0),
+        );
+      }
+      if (low.get(frame.node) === index.get(frame.node)) {
+        const id = nextId;
+        nextId += 1;
+        while (true) {
+          const member = stack.pop();
+          if (member === undefined) {
+            break;
+          }
+          onStack.delete(member);
+          ids.set(member, id);
+          if (member === frame.node) {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return ids;
+}
+
 function getRoots(graph: Graph): Set<string> {
+  const imports = buildImports(graph);
+  const componentIds = stronglyConnectedIds(
+    graph.files,
+    (file) => imports.get(file) ?? [],
+  );
   const roots = new Set<string>();
+
   for (const file of graph.files) {
     const importers = graph.importers.get(file) ?? [];
-    if (importers.length === 0) {
+    // No importers at all is the common case. A file whose only importers sit
+    // in its own cycle also counts: inside a cycle nothing is importer-free, so
+    // requiring that would leave a cyclic entry point with no roots and strip
+    // the shell exemption from the whole project.
+    const importedFromOutside = importers.some(
+      (importer) => componentIds.get(importer) !== componentIds.get(file),
+    );
+    if (!importedFromOutside) {
       roots.add(file);
     }
   }
+
   return roots;
 }
 
-export function getShells(graph: Graph): Set<string> {
+export function getShells(ctx: OwnershipContext): Set<string> {
+  const { graph, rootDir, shellGlobs } = ctx;
+  const key = rootDir + "\0" + shellGlobs.join("\0");
   const cached = shellsByGraph.get(graph);
-  if (cached !== undefined) {
-    return cached;
+  if (cached !== undefined && cached.key === key) {
+    return cached.shells;
   }
 
   const roots = getRoots(graph);
   const shells = new Set(roots);
+
   for (const file of graph.files) {
     if (shells.has(file)) {
+      continue;
+    }
+    if (matchesIgnore(path.relative(rootDir, file), shellGlobs)) {
+      shells.add(file);
       continue;
     }
     const importers = graph.importers.get(file) ?? [];
@@ -122,7 +250,7 @@ export function getShells(graph: Graph): Set<string> {
     }
   }
 
-  shellsByGraph.set(graph, shells);
+  shellsByGraph.set(graph, { key, shells });
   return shells;
 }
 
@@ -210,29 +338,27 @@ export function isLayerPublicModule(
 
 export function shouldSkipColocation(
   filePath: string,
-  graph: Graph,
-  layerDirs: string[],
+  ctx: OwnershipContext,
 ): boolean {
-  const shells = getShells(graph);
+  const shells = getShells(ctx);
   if (shells.has(filePath)) {
     return true;
   }
-  if (isLayerPublicModule(filePath, layerDirs)) {
+  if (isLayerPublicModule(filePath, ctx.layerDirs)) {
     return true;
   }
-  return getColocationConsumers(filePath, graph, shells).length === 0;
+  return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
 }
 
 function collectConsumerOwners(
   filePath: string,
-  graph: Graph,
-  rootDir: string,
+  ctx: OwnershipContext,
 ): Map<string, Owner> {
-  const shells = getShells(graph);
-  const consumers = getColocationConsumers(filePath, graph, shells);
+  const shells = getShells(ctx);
+  const consumers = getColocationConsumers(filePath, ctx.graph, shells);
   const owners = new Map<string, Owner>();
   for (const consumer of consumers) {
-    const owner = getOwner(consumer, graph, rootDir);
+    const owner = getOwner(consumer, ctx.graph, ctx.rootDir);
     owners.set(owner.path, owner);
   }
   return owners;
@@ -240,15 +366,13 @@ function collectConsumerOwners(
 
 export function isPrivateOutsideOwner(
   filePath: string,
-  graph: Graph,
-  rootDir: string,
-  layerDirs: string[],
+  ctx: OwnershipContext,
 ): boolean {
-  if (shouldSkipColocation(filePath, graph, layerDirs)) {
+  if (shouldSkipColocation(filePath, ctx)) {
     return false;
   }
 
-  const owners = collectConsumerOwners(filePath, graph, rootDir);
+  const owners = collectConsumerOwners(filePath, ctx);
 
   if (owners.size !== 1) {
     return false;
@@ -292,15 +416,13 @@ function longestCommonAncestor(dirs: string[]): string {
 
 export function getSharedColocationIssue(
   filePath: string,
-  graph: Graph,
-  rootDir: string,
-  layerDirs: string[],
+  ctx: OwnershipContext,
 ): "sharedTooHigh" | "sharedInsideOwner" | undefined {
-  if (shouldSkipColocation(filePath, graph, layerDirs)) {
+  if (shouldSkipColocation(filePath, ctx)) {
     return undefined;
   }
 
-  const owners = collectConsumerOwners(filePath, graph, rootDir);
+  const owners = collectConsumerOwners(filePath, ctx);
   if (owners.size < 2) {
     return undefined;
   }
