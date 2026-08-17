@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Rule } from "eslint";
-import { getGraph, isSourceFile, isTestFile, matchesIgnore } from "../lib/graph.js";
+import {
+  getGraph,
+  isSourceFile,
+  isTestFile,
+  matchesIgnore,
+  SKIP_DIRS,
+} from "../lib/graph.js";
 import {
   countLocalReExports,
   getSharedColocationIssue,
@@ -14,8 +20,6 @@ interface RuleOptions {
   ignore?: string[];
   layers?: string[];
 }
-
-const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
 
 function isCssFile(filePath: string): boolean {
   return path.basename(filePath).endsWith(".css");
@@ -128,7 +132,7 @@ const rule: Rule.RuleModule = {
         const dir = path.dirname(filename);
         const realDir = fs.realpathSync(dir);
         const realFilename = fs.realpathSync(filename);
-        const graph = getGraph(rootDir, ignore);
+        const graph = getGraph(rootDir, ignore, realFilename);
 
         if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
           context.report({

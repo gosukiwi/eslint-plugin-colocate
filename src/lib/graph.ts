@@ -26,7 +26,14 @@ export interface Graph {
   files: string[];
 }
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
+export const SKIP_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "coverage",
+  ".git",
+  ".hg",
+  ".svn",
+]);
 
 export function isSourceFile(p: string): boolean {
   if (p.endsWith(".d.ts")) {
@@ -287,46 +294,107 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return { importers, files };
 }
 
-export function fingerprintPaths(paths: string[]): string {
-  return [...paths]
-    .sort()
-    .map((p) => {
-      const real = fs.realpathSync(p);
-      const stat = fs.statSync(real);
-      return `${real}\0${stat.mtimeMs}\0${stat.size}`;
-    })
-    .join("\n");
+interface FileStamp {
+  mtimeMs: number;
+  size: number;
 }
 
-function fingerprintProductionTree(
-  rootDir: string,
-  ignoreGlobs: string[],
-): string {
-  const resolvedRoot = fs.realpathSync(rootDir);
-  const files: string[] = [];
-  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
-  const parts = [fingerprintPaths(files)];
-  const configPath = ts.findConfigFile(resolvedRoot, (fileName) =>
+interface TsconfigStamp {
+  path: string;
+  mtimeMs: number;
+}
+
+interface CachedGraph {
+  graph: Graph;
+  stamps: Map<string, FileStamp>;
+  tsconfig: TsconfigStamp | null;
+}
+
+const cache = new Map<string, CachedGraph>();
+
+function stampFiles(files: string[]): Map<string, FileStamp> {
+  const stamps = new Map<string, FileStamp>();
+  for (const file of files) {
+    const stat = fs.statSync(file);
+    stamps.set(file, { mtimeMs: stat.mtimeMs, size: stat.size });
+  }
+  return stamps;
+}
+
+function readTsconfigStamp(rootDir: string): TsconfigStamp | null {
+  const configPath = ts.findConfigFile(rootDir, (fileName) =>
     ts.sys.fileExists(fileName),
   );
-  if (configPath !== undefined) {
-    const stat = fs.statSync(configPath);
-    parts.push(`${configPath}\0${stat.mtimeMs}`);
+  if (configPath === undefined) {
+    return null;
   }
-  return parts.join("\n");
+  const stat = fs.statSync(configPath);
+  return { path: configPath, mtimeMs: stat.mtimeMs };
 }
 
-const cache = new Map<string, { graph: Graph; fingerprint: string }>();
+function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
+  const current = readTsconfigStamp(rootDir);
+  const prev = cached.tsconfig;
+  if (prev === null || current === null) {
+    return prev !== current;
+  }
+  return prev.path !== current.path || prev.mtimeMs !== current.mtimeMs;
+}
 
-export function getGraph(rootDir: string, ignoreGlobs: string[]): Graph {
+function isProductionGraphFile(
+  currentFile: string,
+  rootDir: string,
+  ignoreGlobs: string[],
+): boolean {
+  const relPath = path.relative(rootDir, currentFile);
+  if (relPath === "" || relPath.startsWith("..") || path.isAbsolute(relPath)) {
+    return false;
+  }
+  if (!isSourceFile(currentFile) || isTestFile(currentFile)) {
+    return false;
+  }
+  return !matchesIgnore(relPath, ignoreGlobs);
+}
+
+function needsRebuild(
+  cached: CachedGraph,
+  currentFile: string,
+  rootDir: string,
+  ignoreGlobs: string[],
+): boolean {
+  const prev = cached.stamps.get(currentFile);
+  if (prev === undefined) {
+    return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
+  }
+
+  try {
+    const stat = fs.statSync(currentFile);
+    return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
+  } catch {
+    return true;
+  }
+}
+
+export function getGraph(
+  rootDir: string,
+  ignoreGlobs: string[],
+  currentFile: string,
+): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
-  const fingerprint = fingerprintProductionTree(rootDir, ignoreGlobs);
   const cached = cache.get(key);
-  if (cached !== undefined && cached.fingerprint === fingerprint) {
+  if (
+    cached !== undefined &&
+    !tsconfigNeedsRebuild(cached, rootDir) &&
+    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
+  ) {
     return cached.graph;
   }
 
   const graph = buildGraph(rootDir, ignoreGlobs);
-  cache.set(key, { graph, fingerprint });
+  cache.set(key, {
+    graph,
+    stamps: stampFiles(graph.files),
+    tsconfig: readTsconfigStamp(rootDir),
+  });
   return graph;
 }
