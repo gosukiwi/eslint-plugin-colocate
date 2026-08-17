@@ -217,6 +217,14 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("resolves path aliases inherited through tsconfig extends", async () => {
+    const messages = await lintFixture("alias-extends");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+      { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
   it("does not report privateOutsideOwner on a helper skipped by ignore globs", async () => {
     const messages = await lintFixture("ignore-glob", {
       ignore: ["**/helper.ts"],

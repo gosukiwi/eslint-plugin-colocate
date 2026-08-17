@@ -155,71 +155,71 @@ function extractSpecifiers(content: string, fileName: string): string[] {
   return specifiers;
 }
 
-export interface PathAlias {
-  prefix: string;
-  mappedPrefix: string;
+export interface ResolutionSettings {
+  options: ts.CompilerOptions;
+  cache: ts.ModuleResolutionCache;
+  configPaths: string[];
 }
 
-function loadPathAliases(rootDir: string): PathAlias[] {
-  const configPath = ts.findConfigFile(rootDir, (fileName) =>
-    ts.sys.fileExists(fileName),
-  );
+// One lenient policy for every specifier, whatever the project configures for
+// tsc: bundler-style resolution accepts extensionless imports and maps
+// "./x.js" onto x.ts, which is how these projects are actually built.
+const RESOLUTION_OVERRIDES: ts.CompilerOptions = {
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  allowJs: true,
+};
+
+export function findTsconfig(rootDir: string): string | undefined {
+  return ts.findConfigFile(rootDir, (fileName) => ts.sys.fileExists(fileName));
+}
+
+function loadCompilerOptions(rootDir: string): {
+  options: ts.CompilerOptions;
+  configPaths: string[];
+} {
+  const configPath = findTsconfig(rootDir);
   if (configPath === undefined) {
-    return [];
+    return { options: {}, configPaths: [] };
   }
 
-  const { config, error } = ts.readConfigFile(configPath, (fileName) =>
-    ts.sys.readFile(fileName),
+  // getParsedCommandLineOfConfigFile (rather than readConfigFile) is what
+  // follows "extends", so paths declared in a base config are honoured.
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    configPath,
+    {},
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: () => {},
+    },
   );
-  if (error !== undefined || config === undefined) {
-    return [];
+  if (parsed === undefined) {
+    return { options: {}, configPaths: [configPath] };
   }
 
-  const compilerOptions = config.compilerOptions as
-    | { baseUrl?: string; paths?: Record<string, string[]> }
+  const configFile = parsed.options.configFile as
+    | { extendedSourceFiles?: string[] }
     | undefined;
-  if (compilerOptions === undefined || compilerOptions.paths === undefined) {
-    return [];
-  }
-
-  // TypeScript 4.1 and later allow `paths` without `baseUrl`, in which case
-  // targets resolve relative to the directory holding the tsconfig.
-  const configDir = path.dirname(configPath);
-  const baseUrl =
-    compilerOptions.baseUrl === undefined
-      ? configDir
-      : path.resolve(configDir, compilerOptions.baseUrl);
-  const aliases: PathAlias[] = [];
-
-  for (const [pattern, targets] of Object.entries(compilerOptions.paths)) {
-    const star = pattern.indexOf("*");
-    if (star === -1 || targets === undefined || targets[0] === undefined) {
-      continue;
-    }
-    const prefix = pattern.slice(0, star);
-    const target = targets[0];
-    const targetStar = target.indexOf("*");
-    const mappedPrefix =
-      targetStar === -1 ? target : target.slice(0, targetStar);
-    aliases.push({
-      prefix,
-      mappedPrefix: path.resolve(baseUrl, mappedPrefix),
-    });
-  }
-
-  return aliases;
+  return {
+    options: parsed.options,
+    configPaths: [configPath, ...(configFile?.extendedSourceFiles ?? [])],
+  };
 }
 
-function mapAlias(specifier: string, aliases: PathAlias[]): string | undefined {
-  for (const alias of aliases) {
-    if (specifier.startsWith(alias.prefix)) {
-      return path.join(
-        alias.mappedPrefix,
-        specifier.slice(alias.prefix.length),
-      );
-    }
-  }
-  return undefined;
+export function createResolutionSettings(rootDir: string): ResolutionSettings {
+  const { options, configPaths } = loadCompilerOptions(rootDir);
+  const resolutionOptions: ts.CompilerOptions = {
+    ...options,
+    ...RESOLUTION_OVERRIDES,
+  };
+  return {
+    options: resolutionOptions,
+    cache: ts.createModuleResolutionCache(
+      rootDir,
+      (fileName) => fileName,
+      resolutionOptions,
+    ),
+    configPaths,
+  };
 }
 
 const IMPORT_JS_EXTS = [".mjs", ".cjs", ".jsx", ".js"] as const;
@@ -267,26 +267,43 @@ function probeResolvedPath(base: string): string | undefined {
 export function resolveSpecifier(
   specifier: string,
   fromDir: string,
-  aliases: PathAlias[] = [],
+  settings?: ResolutionSettings,
 ): string | undefined {
-  let base: string;
-  if (specifier.startsWith(".")) {
-    base = path.resolve(fromDir, specifier);
-  } else {
-    const mapped = mapAlias(specifier, aliases);
-    if (mapped === undefined) {
-      return undefined;
+  const options = settings?.options ?? RESOLUTION_OVERRIDES;
+  const { resolvedModule } = ts.resolveModuleName(
+    specifier,
+    path.join(fromDir, "__file-ownership-lint__.ts"),
+    options,
+    ts.sys,
+    settings?.cache,
+  );
+
+  if (resolvedModule !== undefined && isSourceFile(resolvedModule.resolvedFileName)) {
+    const resolved = safeRealpath(resolvedModule.resolvedFileName);
+    if (resolved !== undefined) {
+      return resolved;
     }
-    base = mapped;
   }
 
-  return probeResolvedPath(base);
+  // Extensions the compiler will not resolve on its own (.cts, .cjs) still
+  // resolve here, so relative imports keep working regardless.
+  if (specifier.startsWith(".")) {
+    return probeResolvedPath(path.resolve(fromDir, specifier));
+  }
+  return undefined;
 }
 
 export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
+  return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
+}
+
+function buildGraphWithConfigs(
+  rootDir: string,
+  ignoreGlobs: string[],
+): { graph: Graph; configPaths: string[] } {
   const resolvedRoot = safeRealpath(rootDir);
   if (resolvedRoot === undefined) {
-    return { importers: new Map(), files: [] };
+    return { graph: { importers: new Map(), files: [] }, configPaths: [] };
   }
   const files: string[] = [];
   walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
@@ -294,7 +311,7 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
 
   const fileSet = new Set(files);
   const importers = new Map<string, string[]>();
-  const aliases = loadPathAliases(resolvedRoot);
+  const settings = createResolutionSettings(resolvedRoot);
 
   for (const file of files) {
     const content = safeReadFile(file);
@@ -304,7 +321,7 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
     const fromDir = path.dirname(file);
 
     for (const specifier of extractSpecifiers(content, file)) {
-      const resolved = resolveSpecifier(specifier, fromDir, aliases);
+      const resolved = resolveSpecifier(specifier, fromDir, settings);
       if (resolved === undefined || !fileSet.has(resolved)) {
         continue;
       }
@@ -318,7 +335,7 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
     }
   }
 
-  return { importers, files };
+  return { graph: { importers, files }, configPaths: settings.configPaths };
 }
 
 interface FileStamp {
@@ -334,7 +351,7 @@ interface TsconfigStamp {
 interface CachedGraph {
   graph: Graph;
   stamps: Map<string, FileStamp>;
-  tsconfig: TsconfigStamp | null;
+  configs: TsconfigStamp[];
 }
 
 const cache = new Map<string, CachedGraph>();
@@ -350,27 +367,25 @@ function stampFiles(files: string[]): Map<string, FileStamp> {
   return stamps;
 }
 
-function readTsconfigStamp(rootDir: string): TsconfigStamp | null {
-  const configPath = ts.findConfigFile(rootDir, (fileName) =>
-    ts.sys.fileExists(fileName),
-  );
-  if (configPath === undefined) {
-    return null;
+function stampConfigs(configPaths: string[]): TsconfigStamp[] {
+  const stamps: TsconfigStamp[] = [];
+  for (const configPath of configPaths) {
+    const stat = safeStat(configPath);
+    stamps.push({ path: configPath, mtimeMs: stat?.mtimeMs ?? 0 });
   }
-  const stat = safeStat(configPath);
-  if (stat === undefined) {
-    return null;
-  }
-  return { path: configPath, mtimeMs: stat.mtimeMs };
+  return stamps;
 }
 
 function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
-  const current = readTsconfigStamp(rootDir);
-  const prev = cached.tsconfig;
-  if (prev === null || current === null) {
-    return prev !== current;
+  const currentPath = findTsconfig(rootDir);
+  const previousPath = cached.configs[0]?.path;
+  if (currentPath !== previousPath) {
+    return true;
   }
-  return prev.path !== current.path || prev.mtimeMs !== current.mtimeMs;
+  return cached.configs.some((stamp) => {
+    const stat = safeStat(stamp.path);
+    return (stat?.mtimeMs ?? 0) !== stamp.mtimeMs;
+  });
 }
 
 function isProductionGraphFile(
@@ -421,11 +436,11 @@ export function getGraph(
     return cached.graph;
   }
 
-  const graph = buildGraph(rootDir, ignoreGlobs);
+  const { graph, configPaths } = buildGraphWithConfigs(rootDir, ignoreGlobs);
   cache.set(key, {
     graph,
     stamps: stampFiles(graph.files),
-    tsconfig: readTsconfigStamp(rootDir),
+    configs: stampConfigs(configPaths),
   });
   return graph;
 }

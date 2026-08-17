@@ -9,10 +9,13 @@ export declare const SKIP_DIRS: Set<string>;
 export declare function isSourceFile(p: string): boolean;
 export declare function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean;
 export declare function parseSourceFile(fileName: string, content: string): ts.SourceFile;
-export interface PathAlias {
-    prefix: string;
-    mappedPrefix: string;
+export interface ResolutionSettings {
+    options: ts.CompilerOptions;
+    cache: ts.ModuleResolutionCache;
+    configPaths: string[];
 }
-export declare function resolveSpecifier(specifier: string, fromDir: string, aliases?: PathAlias[]): string | undefined;
+export declare function findTsconfig(rootDir: string): string | undefined;
+export declare function createResolutionSettings(rootDir: string): ResolutionSettings;
+export declare function resolveSpecifier(specifier: string, fromDir: string, settings?: ResolutionSettings): string | undefined;
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
 export declare function getGraph(rootDir: string, ignoreGlobs: string[], currentFile: string): Graph;
