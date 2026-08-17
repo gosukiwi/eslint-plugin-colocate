@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { safeReadFile, safeReaddir, safeRealpath, safeStat, } from "./fs-safe.js";
 export const SOURCE_EXTS = [
     ".ts",
     ".tsx",
@@ -38,7 +38,7 @@ function shouldSkip(relPath, ignoreGlobs) {
     return matchesIgnore(relPath, ignoreGlobs);
 }
 function walkDir(dir, rootDir, ignoreGlobs, files) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
         const relPath = path.relative(rootDir, fullPath);
         if (entry.isDirectory()) {
@@ -52,7 +52,10 @@ function walkDir(dir, rootDir, ignoreGlobs, files) {
             continue;
         }
         if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
-            files.push(fs.realpathSync(fullPath));
+            const realPath = safeRealpath(fullPath);
+            if (realPath !== undefined) {
+                files.push(realPath);
+            }
         }
     }
 }
@@ -153,6 +156,13 @@ function mapAlias(specifier, aliases) {
     return undefined;
 }
 const IMPORT_JS_EXTS = [".mjs", ".cjs", ".jsx", ".js"];
+function probeFile(candidate) {
+    const stat = safeStat(candidate);
+    if (stat === undefined || !stat.isFile()) {
+        return undefined;
+    }
+    return safeRealpath(candidate);
+}
 function probeResolvedPath(base) {
     for (const ext of IMPORT_JS_EXTS) {
         if (base.endsWith(ext)) {
@@ -160,22 +170,22 @@ function probeResolvedPath(base) {
             break;
         }
     }
-    if (fs.existsSync(base)) {
-        const stat = fs.statSync(base);
-        if (stat.isFile() && isSourceFile(base)) {
-            return fs.realpathSync(base);
+    if (isSourceFile(base)) {
+        const exact = probeFile(base);
+        if (exact !== undefined) {
+            return exact;
         }
     }
     for (const ext of SOURCE_EXTS) {
-        const candidate = base + ext;
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-            return fs.realpathSync(candidate);
+        const candidate = probeFile(base + ext);
+        if (candidate !== undefined) {
+            return candidate;
         }
     }
     for (const ext of SOURCE_EXTS) {
-        const candidate = path.join(base, "index" + ext);
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-            return fs.realpathSync(candidate);
+        const candidate = probeFile(path.join(base, "index" + ext));
+        if (candidate !== undefined) {
+            return candidate;
         }
     }
     return undefined;
@@ -195,7 +205,10 @@ export function resolveSpecifier(specifier, fromDir, aliases = []) {
     return probeResolvedPath(base);
 }
 export function buildGraph(rootDir, ignoreGlobs) {
-    const resolvedRoot = fs.realpathSync(rootDir);
+    const resolvedRoot = safeRealpath(rootDir);
+    if (resolvedRoot === undefined) {
+        return { importers: new Map(), files: [] };
+    }
     const files = [];
     walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
     files.sort();
@@ -203,7 +216,10 @@ export function buildGraph(rootDir, ignoreGlobs) {
     const importers = new Map();
     const aliases = loadPathAliases(resolvedRoot);
     for (const file of files) {
-        const content = fs.readFileSync(file, "utf8");
+        const content = safeReadFile(file);
+        if (content === undefined) {
+            continue;
+        }
         const fromDir = path.dirname(file);
         for (const specifier of extractSpecifiers(content, file)) {
             const resolved = resolveSpecifier(specifier, fromDir, aliases);
@@ -225,8 +241,10 @@ const cache = new Map();
 function stampFiles(files) {
     const stamps = new Map();
     for (const file of files) {
-        const stat = fs.statSync(file);
-        stamps.set(file, { mtimeMs: stat.mtimeMs, size: stat.size });
+        const stat = safeStat(file);
+        if (stat !== undefined) {
+            stamps.set(file, { mtimeMs: stat.mtimeMs, size: stat.size });
+        }
     }
     return stamps;
 }
@@ -235,7 +253,10 @@ function readTsconfigStamp(rootDir) {
     if (configPath === undefined) {
         return null;
     }
-    const stat = fs.statSync(configPath);
+    const stat = safeStat(configPath);
+    if (stat === undefined) {
+        return null;
+    }
     return { path: configPath, mtimeMs: stat.mtimeMs };
 }
 function tsconfigNeedsRebuild(cached, rootDir) {
@@ -261,13 +282,11 @@ function needsRebuild(cached, currentFile, rootDir, ignoreGlobs) {
     if (prev === undefined) {
         return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
     }
-    try {
-        const stat = fs.statSync(currentFile);
-        return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
-    }
-    catch {
+    const stat = safeStat(currentFile);
+    if (stat === undefined) {
         return true;
     }
+    return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
 }
 export function getGraph(rootDir, ignoreGlobs, currentFile) {
     const key = rootDir + "\0" + ignoreGlobs.join("\0");

@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import type { Rule } from "eslint";
+import { safeReaddir, safeRealpath } from "../lib/fs-safe.js";
 import {
   getGraph,
   isSourceFile,
@@ -31,7 +31,7 @@ function countDirectoryContentsRecursive(
   let sourceCount = 0;
   let cssCount = 0;
 
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of safeReaddir(dir)) {
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
@@ -106,16 +106,13 @@ const rule: Rule.RuleModule = {
   },
   create(context) {
     const options = (context.options[0] ?? {}) as RuleOptions;
-    const rootOption = options.root ?? "src";
+    const rootOption = options.root ?? ".";
     const ignore = options.ignore ?? [];
     const layers = options.layers ?? [];
     const cwd = context.cwd;
     const rootDir = path.isAbsolute(rootOption)
       ? rootOption
       : path.resolve(cwd, rootOption);
-
-    const realRootDir = fs.realpathSync(rootDir);
-    const layerDirs = resolveLayerDirectories(cwd, layers);
 
     return {
       Program(node) {
@@ -124,14 +121,30 @@ const rule: Rule.RuleModule = {
           return;
         }
 
-        const relPath = path.relative(rootDir, filename);
+        // Resolved lazily: a configured root that does not exist, or a linted
+        // path that is not on disk (processors, --stdin-filename, a file
+        // deleted mid-run), means "nothing to say" rather than a crash.
+        const realRootDir = safeRealpath(rootDir);
+        const realFilename = safeRealpath(filename);
+        if (realRootDir === undefined || realFilename === undefined) {
+          return;
+        }
+
+        const relPath = path.relative(realRootDir, realFilename);
+        if (
+          relPath === "" ||
+          relPath.startsWith("..") ||
+          path.isAbsolute(relPath)
+        ) {
+          return;
+        }
         if (matchesIgnore(relPath, ignore)) {
           return;
         }
 
-        const dir = path.dirname(filename);
-        const realDir = fs.realpathSync(dir);
-        const realFilename = fs.realpathSync(filename);
+        const realDir = path.dirname(realFilename);
+        const dir = realDir;
+        const layerDirs = resolveLayerDirectories(cwd, layers);
         const graph = getGraph(rootDir, ignore, realFilename);
 
         if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {

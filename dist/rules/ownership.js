@@ -1,5 +1,5 @@
-import fs from "node:fs";
 import path from "node:path";
+import { safeReaddir, safeRealpath } from "../lib/fs-safe.js";
 import { getGraph, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
 import { collectLocalReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
 function isCssFile(filePath) {
@@ -8,7 +8,7 @@ function isCssFile(filePath) {
 function countDirectoryContentsRecursive(dir) {
     let sourceCount = 0;
     let cssCount = 0;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             if (SKIP_DIRS.has(entry.name)) {
@@ -67,28 +67,39 @@ const rule = {
     },
     create(context) {
         const options = (context.options[0] ?? {});
-        const rootOption = options.root ?? "src";
+        const rootOption = options.root ?? ".";
         const ignore = options.ignore ?? [];
         const layers = options.layers ?? [];
         const cwd = context.cwd;
         const rootDir = path.isAbsolute(rootOption)
             ? rootOption
             : path.resolve(cwd, rootOption);
-        const realRootDir = fs.realpathSync(rootDir);
-        const layerDirs = resolveLayerDirectories(cwd, layers);
         return {
             Program(node) {
                 const filename = context.filename;
                 if (!isSourceFile(filename) || isTestFile(filename)) {
                     return;
                 }
-                const relPath = path.relative(rootDir, filename);
+                // Resolved lazily: a configured root that does not exist, or a linted
+                // path that is not on disk (processors, --stdin-filename, a file
+                // deleted mid-run), means "nothing to say" rather than a crash.
+                const realRootDir = safeRealpath(rootDir);
+                const realFilename = safeRealpath(filename);
+                if (realRootDir === undefined || realFilename === undefined) {
+                    return;
+                }
+                const relPath = path.relative(realRootDir, realFilename);
+                if (relPath === "" ||
+                    relPath.startsWith("..") ||
+                    path.isAbsolute(relPath)) {
+                    return;
+                }
                 if (matchesIgnore(relPath, ignore)) {
                     return;
                 }
-                const dir = path.dirname(filename);
-                const realDir = fs.realpathSync(dir);
-                const realFilename = fs.realpathSync(filename);
+                const realDir = path.dirname(realFilename);
+                const dir = realDir;
+                const layerDirs = resolveLayerDirectories(cwd, layers);
                 const graph = getGraph(rootDir, ignore, realFilename);
                 if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
                     context.report({

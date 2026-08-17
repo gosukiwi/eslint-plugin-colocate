@@ -36,7 +36,11 @@ export default [
 
 ### Options
 
-- **`root`** — directory walked to build the import graph. Default `"src"`.
+- **`root`** — directory walked to build the import graph, and the ceiling for
+  the ownership walk. Default `"."` (the working directory), so projects that
+  keep sources at the repository root work without configuration. Set it to
+  `"src"` (or wherever your sources live) for a tighter, faster graph. Files
+  outside `root` are never reported on.
 - **`layers`** — globs for layer directories. Immediate children are public peer owners: they may have a single consumer and may sit beside the trees that import them.
 - **`ignore`** — extra globs skipped as both subjects and consumers.
 

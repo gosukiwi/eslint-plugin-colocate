@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import {
   parseSourceFile,
   resolveSpecifier,
@@ -13,8 +13,11 @@ const shellsByGraph = new WeakMap<Graph, Set<string>>();
 const layerDirsCache = new Map<string, string[]>();
 
 export function collectLocalReExports(indexFile: string, dir: string): string[] {
-  const content = fs.readFileSync(indexFile, "utf8");
-  const realDir = fs.realpathSync(dir);
+  const content = safeReadFile(indexFile);
+  const realDir = safeRealpath(dir);
+  if (content === undefined || realDir === undefined) {
+    return [];
+  }
   const sourceFile = parseSourceFile(indexFile, content);
   const targets: string[] = [];
 
@@ -68,7 +71,7 @@ export interface Owner {
 
 export function getOwner(filePath: string, graph: Graph, rootDir: string): Owner {
   let dir = path.dirname(filePath);
-  const realRoot = fs.realpathSync(rootDir);
+  const realRoot = safeRealpath(rootDir) ?? rootDir;
 
   while (true) {
     if (directoryHasMatchingEntry(dir, graph)) {
@@ -151,7 +154,7 @@ function collectLayerDirs(
   layerGlobs: string[],
   out: string[],
 ): void {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of safeReaddir(dir)) {
     if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) {
       continue;
     }
@@ -159,7 +162,10 @@ function collectLayerDirs(
     const fullPath = path.join(dir, entry.name);
     const relPath = path.relative(cwd, fullPath).split(path.sep).join("/");
     if (layerGlobs.some((glob) => minimatch(relPath, glob))) {
-      out.push(fs.realpathSync(fullPath));
+      const realPath = safeRealpath(fullPath);
+      if (realPath !== undefined) {
+        out.push(realPath);
+      }
     }
     collectLayerDirs(fullPath, cwd, layerGlobs, out);
   }

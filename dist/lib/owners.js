@@ -1,13 +1,16 @@
-import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
 const shellsByGraph = new WeakMap();
 const layerDirsCache = new Map();
 export function collectLocalReExports(indexFile, dir) {
-    const content = fs.readFileSync(indexFile, "utf8");
-    const realDir = fs.realpathSync(dir);
+    const content = safeReadFile(indexFile);
+    const realDir = safeRealpath(dir);
+    if (content === undefined || realDir === undefined) {
+        return [];
+    }
     const sourceFile = parseSourceFile(indexFile, content);
     const targets = [];
     const visit = (node) => {
@@ -46,7 +49,7 @@ function directoryHasMatchingEntry(dir, graph) {
 }
 export function getOwner(filePath, graph, rootDir) {
     let dir = path.dirname(filePath);
-    const realRoot = fs.realpathSync(rootDir);
+    const realRoot = safeRealpath(rootDir) ?? rootDir;
     while (true) {
         if (directoryHasMatchingEntry(dir, graph)) {
             return { kind: "folder", path: dir };
@@ -104,14 +107,17 @@ function isMatchingNameEntry(filePath, ownerDir) {
         path.basename(filePath, path.extname(filePath)) === path.basename(ownerDir));
 }
 function collectLayerDirs(dir, cwd, layerGlobs, out) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of safeReaddir(dir)) {
         if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) {
             continue;
         }
         const fullPath = path.join(dir, entry.name);
         const relPath = path.relative(cwd, fullPath).split(path.sep).join("/");
         if (layerGlobs.some((glob) => minimatch(relPath, glob))) {
-            out.push(fs.realpathSync(fullPath));
+            const realPath = safeRealpath(fullPath);
+            if (realPath !== undefined) {
+                out.push(realPath);
+            }
         }
         collectLayerDirs(fullPath, cwd, layerGlobs, out);
     }
