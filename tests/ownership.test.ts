@@ -109,6 +109,13 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("reports sharedInsideOwner when a shared file sits inside the innermost nested owner", async () => {
+    const messages = await lintFixture("shared-inside-nested-owner");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/Outer/Inner/fmt.ts", messageId: "sharedInsideOwner" },
+    ]);
+  });
+
   it("does not report shared placement when the file sits in a common subdirectory", async () => {
     const messages = await lintFixture("shared-common-subdir-ok");
     expect(sortMessages(messages)).toEqual([

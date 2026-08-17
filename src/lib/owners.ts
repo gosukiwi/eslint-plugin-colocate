@@ -307,8 +307,12 @@ export function getSharedColocationIssue(
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
   const containing = ownerDirs.filter((dir) => isInsideDir(filePath, dir));
-  if (containing.length === 1 && containing[0] !== lca) {
-    return "sharedInsideOwner";
+  if (containing.length > 0) {
+    const longestLen = Math.max(...containing.map((dir) => dir.length));
+    const innermost = containing.filter((dir) => dir.length === longestLen);
+    if (innermost.length === 1 && innermost[0] !== lca) {
+      return "sharedInsideOwner";
+    }
   }
   if (filePath !== lca && !isInsideDir(filePath, lca)) {
     return "sharedTooHigh";
