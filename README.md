@@ -8,15 +8,7 @@ ESLint 9 plugin that flags source files whose placement breaks dependency-owners
 npm install -D gosukiwi/file-ownership-lint
 ```
 
-Or pin a commit and install over plain https, which needs neither git nor an SSH key:
-
-```bash
-npm install -D "https://github.com/gosukiwi/file-ownership-lint/archive/<commit-sha>.tar.gz"
-```
-
 Requires ESLint 9 or later (peer dependency).
-
-`dist/` is committed so both forms work without a build step on the consumer's side. Run `npm run build` and commit the result whenever `src/` changes.
 
 ## Usage
 
