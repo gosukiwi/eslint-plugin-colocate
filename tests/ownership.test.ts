@@ -103,4 +103,53 @@ describe("ownership rule", () => {
       ),
     ).toEqual([]);
   });
+
+  it("does not report privateOutsideOwner on a layer public module with one consumer", async () => {
+    const messages = await lintFixture("layer-single-consumer", {
+      layers: ["src/ui"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([]);
+  });
+
+  it("does not report privateOutsideOwner on a standalone layer public module", async () => {
+    const messages = await lintFixture("layer-standalone", {
+      layers: ["src/ui"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([]);
+  });
+
+  it("does not report sharedTooHigh on a layer public module whose consumers share a sibling tree", async () => {
+    const messages = await lintFixture("layer-shared-sibling-tree", {
+      layers: ["src/ui"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "sharedTooHigh"),
+    ).toEqual([]);
+  });
+
+  it("reports privateOutsideOwner on a nested private file that is not a layer public module", async () => {
+    const messages = await lintFixture("layer-nested-private", {
+      layers: ["src/ui"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/ui/Button/icon.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("reports privateOutsideOwner on a sibling helper outside a configured layer", async () => {
+    const messages = await lintFixture("non-layer-sibling-helper", {
+      layers: ["src/ui"],
+    });
+    expect(
+      messages.filter((m) => m.messageId === "privateOutsideOwner"),
+    ).toEqual([
+      { file: "src/pages/widget.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
 });
