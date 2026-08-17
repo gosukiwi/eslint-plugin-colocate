@@ -109,6 +109,10 @@ Extra globs, relative to `root`, skipped as subjects and as consumers: an ignore
 file is neither reported nor counted when deciding who owns what. Ignored files
 also do not count toward the single-file-directory check.
 
+A glob naming a directory excludes everything under it, so `["gen"]` and
+`["gen/**"]` both work. Symlinks are checked under their own path and under the
+path they resolve to, so ignoring a directory holds however it is reached.
+
 Unknown option names are rejected rather than silently ignored.
 
 ## What it reports
@@ -126,9 +130,14 @@ stylesheet only in the same directory — `.css`, `.scss`, `.sass`, `.less` or
 `.styl`. A stylesheet three directories down is not a companion.
 
 An `index` re-exporting two or more siblings is a namespace barrel: it is left
-alone, and it does not count as a consumer of what it re-exports. An `index`
-re-exporting its own directory's named entry (`Foo/index.ts` → `Foo/Foo.ts`) is
-also left alone.
+alone, and it does not count as a consumer of what it re-exports.
+
+`mismatchedEntry` is deliberately narrow. It needs an `index` whose entire job is
+standing in for one sibling under a different name, so these are all left alone:
+an index re-exporting its own directory's named entry (`Foo/index.ts` →
+`Foo/Foo.ts`), an aggregator that also re-exports modules from elsewhere, an index
+re-exporting itself, one in the root directory, one nothing outside its directory
+imports, and one whose sibling is excluded by `ignore`.
 
 ## Module resolution
 
@@ -140,11 +149,11 @@ sets for `tsc`: extensionless imports resolve, and `./x.js` resolves onto `x.ts`
 Graph edges come from `import`, `export ... from`, dynamic `import()`,
 `require()` and `import x = require()`.
 
-Symlinked files and directories are followed, so a package linked into the tree is
-visible as a consumer — except when the link points at an ancestor of `root`,
-which would pull the whole tree above `root` into the graph. `ignore` globs are
-applied to a link's own path and to the path it resolves to, so ignoring a
-directory holds however it is reached.
+Symlinks are followed while they stay inside `root`. Anything resolving outside
+`root` is left out of the graph: such files can never be reported, so counting
+them as owners produced phantom second owners and reports naming an owner that is
+not in your tree. A directory linked in from outside `root` is therefore invisible
+— raise `root` if you want it considered.
 
 On a case-insensitive filesystem, an import whose case does not match the file on
 disk still resolves, matching what the compiler and your bundler do.
@@ -163,5 +172,28 @@ to any config it extends — invalidate it too.
 
 Filesystem access degrades to "skip" rather than throwing. A `root` that does not
 exist, a linted path that is not on disk (editor buffers, processors,
-`--stdin-filename`, a file deleted mid-run), or an unreadable directory produces
-no findings instead of aborting your lint run.
+`--stdin-filename`, a file deleted mid-run), or an unreadable file or directory
+produces no findings instead of aborting your lint run.
+
+## Known limitations
+
+**Code reachable only through an import cycle is not checked.** A cycle nothing
+imports from outside is treated as an entry point, so it and what it imports get
+the shell exemption. Everything silenced this way is unreachable from your real
+entry point, but note that a cycle running *through* a live module also waives
+that module's ownership of what it imports. Breaking the cycle restores the
+reports.
+
+**Paths are matched case-sensitively.** On a case-insensitive filesystem, linting
+`src/PAGES/helper.ts`, or setting `root: "SRC"` when the directory is `src`,
+produces no findings rather than an error, because the paths do not match what is
+on disk. Import *specifiers* are recovered case-insensitively; the paths ESLint
+and your config hand us are not.
+
+**A mid-pass edit can be missed for up to 100 ms.** The graph is revalidated once
+per lint pass; an edit landing between two files of the same pass is picked up on
+the next one.
+
+**`layers` globs match directories under `root` as well as under the working
+directory.** `layers: ["*"]` therefore matches every top-level directory in
+`root`, which is broader than it looks.
