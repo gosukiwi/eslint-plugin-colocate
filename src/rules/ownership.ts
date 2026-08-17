@@ -19,7 +19,6 @@ interface RuleOptions {
   root?: string;
   ignore?: string[];
   layers?: string[];
-  shells?: string[];
 }
 
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"] as const;
@@ -103,7 +102,6 @@ const rule: Rule.RuleModule = {
           root: { type: "string" },
           ignore: { type: "array", items: { type: "string" } },
           layers: { type: "array", items: { type: "string" } },
-          shells: { type: "array", items: { type: "string" } },
         },
         additionalProperties: false,
       },
@@ -126,7 +124,6 @@ const rule: Rule.RuleModule = {
     const rootOption = options.root ?? ".";
     const ignore = options.ignore ?? [];
     const layers = options.layers ?? [];
-    const shellGlobs = options.shells ?? [];
     const cwd = context.cwd;
     const rootDir = path.isAbsolute(rootOption)
       ? rootOption
@@ -162,13 +159,13 @@ const rule: Rule.RuleModule = {
 
         const realDir = path.dirname(realFilename);
         const graph = getGraph(rootDir, ignore, realFilename);
-        const layerDirs = resolveLayerDirectories(graph, cwd, layers);
-        const ownershipContext = {
+        const layerDirs = resolveLayerDirectories(
           graph,
-          rootDir: realRootDir,
-          layerDirs,
-          shellGlobs,
-        };
+          cwd,
+          layers,
+          realRootDir,
+        );
+        const ownershipContext = { graph, rootDir: realRootDir, layerDirs };
 
         if (
           realDir !== realRootDir &&

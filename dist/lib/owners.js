@@ -2,7 +2,7 @@ import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
-import { matchesIgnore, parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
+import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
 const shellsByGraph = new WeakMap();
 const layerDirsByGraph = new WeakMap();
 export function collectLocalReExports(indexFile, dir) {
@@ -169,21 +169,21 @@ function getRoots(graph) {
     }
     return roots;
 }
+// Entry points plus what they import directly. Deliberately not configurable and
+// deliberately not transitive: a longer bootstrap chain is expressed by declaring
+// the directories it reaches as layers, which states something true about those
+// modules. Exempting the shell's imports outright would also hide a shell that
+// reaches past a feature's entry into its internals - a real finding.
 export function getShells(ctx) {
-    const { graph, rootDir, shellGlobs } = ctx;
-    const key = rootDir + "\0" + shellGlobs.join("\0");
+    const { graph } = ctx;
     const cached = shellsByGraph.get(graph);
-    if (cached !== undefined && cached.key === key) {
-        return cached.shells;
+    if (cached !== undefined) {
+        return cached;
     }
     const roots = getRoots(graph);
     const shells = new Set(roots);
     for (const file of graph.files) {
         if (shells.has(file)) {
-            continue;
-        }
-        if (matchesIgnore(path.relative(rootDir, file), shellGlobs)) {
-            shells.add(file);
             continue;
         }
         const importers = graph.importers.get(file) ?? [];
@@ -192,7 +192,7 @@ export function getShells(ctx) {
             shells.add(file);
         }
     }
-    shellsByGraph.set(graph, { key, shells });
+    shellsByGraph.set(graph, shells);
     return shells;
 }
 export function getColocationConsumers(filePath, graph, shells) {
@@ -206,39 +206,45 @@ function isMatchingNameEntry(filePath, ownerDir) {
     return (path.dirname(filePath) === ownerDir &&
         path.basename(filePath, path.extname(filePath)) === path.basename(ownerDir));
 }
-function collectLayerDirs(dir, cwd, layerGlobs, out) {
+function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
         if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) {
             continue;
         }
         const fullPath = path.join(dir, entry.name);
-        const relPath = path.relative(cwd, fullPath).split(path.sep).join("/");
-        if (layerGlobs.some((glob) => minimatch(relPath, glob))) {
+        // Matched against both spellings: `ignore` globs are relative to `root`
+        // while these were relative to the working directory, so with root: "src"
+        // the natural glob silently matched nothing.
+        const candidates = [
+            path.relative(cwd, fullPath).split(path.sep).join("/"),
+            path.relative(rootDir, fullPath).split(path.sep).join("/"),
+        ];
+        if (layerGlobs.some((glob) => candidates.some((candidate) => minimatch(candidate, glob)))) {
             const realPath = safeRealpath(fullPath);
             if (realPath !== undefined) {
                 out.push(realPath);
             }
         }
-        collectLayerDirs(fullPath, cwd, layerGlobs, out);
+        collectLayerDirs(fullPath, cwd, rootDir, layerGlobs, out);
     }
 }
-export function collectLayerDirectories(cwd, layerGlobs) {
+export function collectLayerDirectories(cwd, layerGlobs, rootDir = cwd) {
     if (layerGlobs.length === 0) {
         return [];
     }
     const dirs = [];
-    collectLayerDirs(cwd, cwd, layerGlobs, dirs);
+    collectLayerDirs(cwd, cwd, rootDir, layerGlobs, dirs);
     return dirs;
 }
 // Memoised against the graph rather than for the life of the process: a layer
 // directory created mid-session used to stay invisible until ESLint restarted,
 // which meant a permanent false privateOutsideOwner on every module inside it.
 // A new directory rebuilds the graph, which drops this entry with it.
-export function resolveLayerDirectories(graph, cwd, layerGlobs) {
+export function resolveLayerDirectories(graph, cwd, layerGlobs, rootDir = cwd) {
     if (layerGlobs.length === 0) {
         return [];
     }
-    const key = cwd + "\0" + layerGlobs.join("\0");
+    const key = cwd + "\0" + rootDir + "\0" + layerGlobs.join("\0");
     let perGraph = layerDirsByGraph.get(graph);
     if (perGraph === undefined) {
         perGraph = new Map();
@@ -248,7 +254,7 @@ export function resolveLayerDirectories(graph, cwd, layerGlobs) {
     if (cached !== undefined) {
         return cached;
     }
-    const dirs = collectLayerDirectories(cwd, layerGlobs);
+    const dirs = collectLayerDirectories(cwd, layerGlobs, rootDir);
     perGraph.set(key, dirs);
     return dirs;
 }

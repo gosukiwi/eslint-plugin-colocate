@@ -59,7 +59,6 @@ const rule = {
                     root: { type: "string" },
                     ignore: { type: "array", items: { type: "string" } },
                     layers: { type: "array", items: { type: "string" } },
-                    shells: { type: "array", items: { type: "string" } },
                 },
                 additionalProperties: false,
             },
@@ -77,7 +76,6 @@ const rule = {
         const rootOption = options.root ?? ".";
         const ignore = options.ignore ?? [];
         const layers = options.layers ?? [];
-        const shellGlobs = options.shells ?? [];
         const cwd = context.cwd;
         const rootDir = path.isAbsolute(rootOption)
             ? rootOption
@@ -107,13 +105,8 @@ const rule = {
                 }
                 const realDir = path.dirname(realFilename);
                 const graph = getGraph(rootDir, ignore, realFilename);
-                const layerDirs = resolveLayerDirectories(graph, cwd, layers);
-                const ownershipContext = {
-                    graph,
-                    rootDir: realRootDir,
-                    layerDirs,
-                    shellGlobs,
-                };
+                const layerDirs = resolveLayerDirectories(graph, cwd, layers, realRootDir);
+                const ownershipContext = { graph, rootDir: realRootDir, layerDirs };
                 if (realDir !== realRootDir &&
                     isSingletonWrapperDirectory(realDir, realFilename, realRootDir, ignore)) {
                     context.report({

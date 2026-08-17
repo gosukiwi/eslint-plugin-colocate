@@ -156,11 +156,28 @@ describe("ownership rule", () => {
     ]);
   });
 
-  it("treats files matched by the shells option as app shell", async () => {
+  it("does not report a page behind a multi-hop chain when its directory is a layer", async () => {
     const messages = await lintFixture("shell-chain", {
-      shells: ["src/*.ts"],
+      layers: ["src/pages"],
     });
     expect(sortMessages(messages)).toEqual([]);
+  });
+
+  // The shell reaching past a feature's entry into its internals is a real
+  // finding, not noise: boot.ts is shared by App and Cart while living inside
+  // Cart. Declaring the shell exempt would hide it, which is why there is no
+  // option to do so.
+  it("reports a module shared between the app shell and a feature's own tree", async () => {
+    const messages = await lintFixture("shell-reaches-internals", {
+      root: "src",
+      layers: ["features", "pages"],
+    });
+    expect(sortMessages(messages)).toEqual([
+      {
+        file: "src/features/Cart/internals/boot.ts",
+        messageId: "sharedInsideOwner",
+      },
+    ]);
   });
 
   it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
