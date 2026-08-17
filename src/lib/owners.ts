@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
-import { resolveSpecifier, type Graph } from "./graph.js";
+import { fingerprintPaths, resolveSpecifier, type Graph } from "./graph.js";
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage"]);
 
 const RE_EXPORT_FROM_RE = /export\s+.*?\s+from\s+["']([^"']+)["']/g;
 
 const shellsByGraph = new WeakMap<Graph, Set<string>>();
-const layerDirsCache = new Map<string, string[]>();
+const layerDirsCache = new Map<string, { dirs: string[]; fingerprint: string }>();
 
 export function countLocalReExports(indexFile: string, dir: string): number {
   const content = fs.readFileSync(indexFile, "utf8");
@@ -165,14 +165,15 @@ export function resolveLayerDirectories(
   }
 
   const key = cwd + "\0" + layerGlobs.join("\0");
-  const cached = layerDirsCache.get(key);
-  if (cached !== undefined) {
-    return cached;
-  }
-
   const dirs: string[] = [];
   collectLayerDirs(cwd, cwd, layerGlobs, dirs);
-  layerDirsCache.set(key, dirs);
+  const fingerprint = fingerprintPaths(dirs) + "\0" + layerGlobs.join("\0");
+  const cached = layerDirsCache.get(key);
+  if (cached !== undefined && cached.fingerprint === fingerprint) {
+    return cached.dirs;
+  }
+
+  layerDirsCache.set(key, { dirs, fingerprint });
   return dirs;
 }
 

@@ -238,16 +238,46 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return { importers, files };
 }
 
-const cache = new Map<string, Graph>();
+export function fingerprintPaths(paths: string[]): string {
+  return [...paths]
+    .sort()
+    .map((p) => {
+      const real = fs.realpathSync(p);
+      const stat = fs.statSync(real);
+      return `${real}\0${stat.mtimeMs}\0${stat.size}`;
+    })
+    .join("\n");
+}
+
+function fingerprintProductionTree(
+  rootDir: string,
+  ignoreGlobs: string[],
+): string {
+  const resolvedRoot = fs.realpathSync(rootDir);
+  const files: string[] = [];
+  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
+  const parts = [fingerprintPaths(files)];
+  const configPath = ts.findConfigFile(resolvedRoot, (fileName) =>
+    ts.sys.fileExists(fileName),
+  );
+  if (configPath !== undefined) {
+    const stat = fs.statSync(configPath);
+    parts.push(`${configPath}\0${stat.mtimeMs}`);
+  }
+  return parts.join("\n");
+}
+
+const cache = new Map<string, { graph: Graph; fingerprint: string }>();
 
 export function getGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
+  const fingerprint = fingerprintProductionTree(rootDir, ignoreGlobs);
   const cached = cache.get(key);
-  if (cached !== undefined) {
-    return cached;
+  if (cached !== undefined && cached.fingerprint === fingerprint) {
+    return cached.graph;
   }
 
   const graph = buildGraph(rootDir, ignoreGlobs);
-  cache.set(key, graph);
+  cache.set(key, { graph, fingerprint });
   return graph;
 }
