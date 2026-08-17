@@ -100,7 +100,6 @@ const rule = {
                     return;
                 }
                 const realDir = path.dirname(realFilename);
-                const dir = realDir;
                 const graph = getGraph(rootDir, ignore, realFilename);
                 const layerDirs = resolveLayerDirectories(graph, cwd, layers);
                 const ownershipContext = {
@@ -109,7 +108,8 @@ const rule = {
                     layerDirs,
                     shellGlobs,
                 };
-                if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
+                if (realDir !== realRootDir &&
+                    isSingletonWrapperDirectory(realDir, realFilename)) {
                     context.report({
                         node,
                         messageId: "singletonFolder",
@@ -132,7 +132,7 @@ const rule = {
                 if (basename !== "index" || realDir === realRootDir) {
                     return;
                 }
-                const dirName = path.basename(dir);
+                const dirName = path.basename(realDir);
                 const filesInDir = graph.files.filter((file) => {
                     const fileDir = path.dirname(file);
                     return fileDir === realDir;
@@ -155,7 +155,7 @@ const rule = {
                 if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
                     return;
                 }
-                const reExports = collectLocalReExports(realFilename, dir);
+                const reExports = collectLocalReExports(realFilename, realDir);
                 if (reExports.length !== 1) {
                     return;
                 }
