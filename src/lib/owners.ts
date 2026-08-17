@@ -66,10 +66,15 @@ function isNamespaceBarrel(filePath: string): boolean {
 function directoryHasMatchingEntry(dir: string, graph: Graph): boolean {
   const dirName = path.basename(dir);
   return graph.files.some((file) => {
-    return (
-      path.dirname(file) === dir &&
-      path.basename(file, path.extname(file)) === dirName
-    );
+    if (path.dirname(file) !== dir) {
+      return false;
+    }
+    // "index" is an entry everywhere else in the plugin. Requiring the folder's
+    // own name here made a folder fronted by index.ts not an owner, so its
+    // private helper was reported wherever it sat - including inside the folder,
+    // which is the one place the message asks for.
+    const base = path.basename(file, path.extname(file));
+    return base === dirName || base === "index";
   });
 }
 
@@ -454,10 +459,30 @@ function longestCommonAncestor(dirs: string[]): string {
   return common.join(path.sep);
 }
 
-function deepestDir(dirs: string[]): string {
-  return dirs.reduce((deepest, dir) =>
-    dir.split(path.sep).length > deepest.split(path.sep).length ? dir : deepest,
-  );
+function folderOwnerAncestors(
+  filePath: string,
+  graph: Graph,
+  rootDir: string,
+): string[] {
+  const realRoot = safeRealpath(rootDir) ?? rootDir;
+  const dirs: string[] = [];
+  let dir = path.dirname(filePath);
+
+  while (true) {
+    if (directoryHasMatchingEntry(dir, graph)) {
+      dirs.push(dir);
+    }
+    if (dir === realRoot) {
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+
+  return dirs;
 }
 
 export function getSharedColocationIssue(
@@ -476,27 +501,37 @@ export function getSharedColocationIssue(
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
 
-  // Only a folder owner has a folder to be inside of. A standalone owner's
-  // parent directory belongs to nobody, so counting it here reported ordinary
-  // shared directories. The subject's own folder owner counts even though it
-  // consumes nothing: that is a shared file buried in an unrelated tree, and
-  // leaving it out meant a second consumer silenced a real report.
-  const folderDirs = [...owners.values()]
+  // Only a folder owner has a folder to be inside of; a standalone owner's parent
+  // directory belongs to nobody. Every folder owner above the subject counts, not
+  // just the innermost one, so a folder entry buried in an unrelated tree is
+  // still caught by the tree it is buried in.
+  const consumerFolderDirs = [...owners.values()]
     .filter((owner) => owner.kind === "folder")
     .map((owner) => owner.path);
-  const subjectOwner = getOwner(filePath, ctx.graph, ctx.rootDir);
-  if (subjectOwner.kind === "folder") {
-    folderDirs.push(subjectOwner.path);
-  }
+  const candidates = new Set([
+    ...consumerFolderDirs,
+    ...folderOwnerAncestors(filePath, ctx.graph, ctx.rootDir),
+  ]);
 
-  const containing = [...new Set(folderDirs)].filter((dir) =>
-    isInsideDir(filePath, dir),
-  );
-  if (containing.length > 0) {
-    const innermost = deepestDir(containing);
-    if (innermost !== lca && !isMatchingNameEntry(filePath, innermost)) {
-      return "sharedInsideOwner";
+  const containing = [...candidates].filter((dir) => {
+    if (!isInsideDir(filePath, dir)) {
+      return false;
     }
+    // A folder at or above the common ancestor holds every consumer, so being
+    // inside it is not "tucked inside one owner".
+    if (!isInsideDir(dir, lca)) {
+      return false;
+    }
+    // An owner folder's own entry belongs in its folder - but only when that
+    // folder is one of the consumers. Otherwise the folder itself is what sits
+    // in the wrong place, and the report still stands.
+    return !(
+      isMatchingNameEntry(filePath, dir) && consumerFolderDirs.includes(dir)
+    );
+  });
+
+  if (containing.length > 0) {
+    return "sharedInsideOwner";
   }
 
   if (!isInsideDir(filePath, lca)) {

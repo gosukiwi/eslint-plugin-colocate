@@ -39,15 +39,20 @@ export default [
 The plugin builds an import graph over `root` and asks, for each file, *who
 depends on me, and does my location reflect that?*
 
-**Owners.** A directory is an owner when it contains a file named after itself —
-`pages/MyPage/MyPage.ts` makes `pages/MyPage/` an owner. A file with no such
+**Owners.** A directory is an owner when it contains an entry file — one named
+after the directory, or an `index`. `pages/MyPage/MyPage.ts` and
+`pages/MyPage/index.ts` both make `pages/MyPage/` an owner. A file with no such
 folder around it owns only itself.
 
 **Private files.** A file imported by exactly one owner belongs inside that
 owner's folder.
 
 **Shared files.** A file imported by two or more owners belongs at their closest
-common ancestor directory — not above it, and not tucked inside one of them.
+common ancestor directory — not above it, and not tucked inside one of them. A
+directory at or above that common ancestor holds every consumer, so sitting
+inside one of those is fine; what is flagged is sitting inside an owner folder
+*below* the common ancestor, including one that merely surrounds the file rather
+than importing it.
 
 **The app shell.** Entry points (files nothing imports) and whatever they import
 directly are treated as shell: what a shell imports, it does not own. So

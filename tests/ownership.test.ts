@@ -220,6 +220,28 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("does not report a shared file at the LCA inside an ancestor that owns both consumers", async () => {
+    const messages = await lintFixture("shared-at-lca-under-owner");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports a folder entry shared out of the owner tree it is buried in", async () => {
+    const messages = await lintFixture("shared-entry-inside-owner");
+    expect(sortMessages(messages)).toEqual([
+      {
+        file: "src/pages/A/Widget/Widget.ts",
+        messageId: "sharedInsideOwner",
+      },
+    ]);
+  });
+
+  it("reports a folder entry buried in a non-consumer owner and shared by two others", async () => {
+    const messages = await lintFixture("shared-entry-inside-other-owner");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/C/Sub/Sub.ts", messageId: "sharedInsideOwner" },
+    ]);
+  });
+
   it("does not report sharedInsideOwner when no consumer owns the shared directory", async () => {
     const messages = await lintFixture("shared-standalone-consumer");
     expect(sortMessages(messages)).toEqual([]);
