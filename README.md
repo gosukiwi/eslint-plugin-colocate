@@ -5,7 +5,7 @@ ESLint 9 plugin that flags source files whose placement breaks dependency-owners
 ## Install
 
 ```bash
-npm install -D file-ownership-lint
+npm install -D gosukiwi/file-ownership-lint
 ```
 
 Requires ESLint 9 or later (peer dependency).
