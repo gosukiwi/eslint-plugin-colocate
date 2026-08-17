@@ -54,4 +54,10 @@ export default [
   three-hop bootstrap chain, and there `MyPage.ts` genuinely owns `helper.ts`.
 - **`ignore`** — extra globs skipped as both subjects and consumers.
 
+Unknown option names are rejected rather than ignored.
+
+A directory holding a single source file is only exempt from `singletonFolder`
+when a stylesheet sits beside that file — `.css`, `.scss`, `.sass`, `.less` or
+`.styl`.
+
 With `layers: ["src/ui"]`, a module such as `src/ui/Button` may be imported by one or many pages and stays under the UI layer. `src/pages` is a normal tree: a private helper of one page must live inside that page's folder, not beside it.

@@ -24,8 +24,9 @@ export const SKIP_DIRS = new Set([
     ".hg",
     ".svn",
 ]);
+const DECLARATION_EXTS = [".d.ts", ".d.mts", ".d.cts"];
 export function isSourceFile(p) {
-    if (p.endsWith(".d.ts")) {
+    if (DECLARATION_EXTS.some((ext) => p.endsWith(ext))) {
         return false;
     }
     return SOURCE_EXTS.some((ext) => p.endsWith(ext));
@@ -99,8 +100,17 @@ function extractSpecifiers(content, fileName) {
                 specifiers.push(text);
             }
         }
+        else if (ts.isImportEqualsDeclaration(node) &&
+            ts.isExternalModuleReference(node.moduleReference)) {
+            const text = stringLiteralText(node.moduleReference.expression);
+            if (text !== undefined) {
+                specifiers.push(text);
+            }
+        }
         else if (ts.isCallExpression(node) &&
-            node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                (ts.isIdentifier(node.expression) &&
+                    node.expression.text === "require"))) {
             const text = stringLiteralText(node.arguments[0]);
             if (text !== undefined) {
                 specifiers.push(text);

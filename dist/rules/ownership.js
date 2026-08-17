@@ -2,39 +2,38 @@ import path from "node:path";
 import { safeReaddir, safeRealpath } from "../lib/fs-safe.js";
 import { getGraph, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
 import { collectLocalReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
-function isCssFile(filePath) {
-    return path.basename(filePath).endsWith(".css");
+const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
+function isStylesheet(filePath) {
+    const basename = path.basename(filePath);
+    return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
-function countDirectoryContentsRecursive(dir) {
+function countSourceFilesRecursive(dir) {
     let sourceCount = 0;
-    let cssCount = 0;
     for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             if (SKIP_DIRS.has(entry.name)) {
                 continue;
             }
-            const nested = countDirectoryContentsRecursive(fullPath);
-            sourceCount += nested.sourceCount;
-            cssCount += nested.cssCount;
+            sourceCount += countSourceFilesRecursive(fullPath);
             continue;
         }
         if (!entry.isFile()) {
-            continue;
-        }
-        if (isCssFile(fullPath)) {
-            cssCount += 1;
             continue;
         }
         if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
             sourceCount += 1;
         }
     }
-    return { sourceCount, cssCount };
+    return sourceCount;
+}
+// Only beside the file: a stylesheet several directories down is not a
+// companion, and treating it as one silently exempted the wrapper.
+function hasCompanionStylesheet(dir) {
+    return safeReaddir(dir).some((entry) => entry.isFile() && isStylesheet(entry.name));
 }
 function isSingletonWrapperDirectory(dir, filename) {
-    const { sourceCount, cssCount } = countDirectoryContentsRecursive(dir);
-    if (sourceCount !== 1 || cssCount !== 0) {
+    if (countSourceFilesRecursive(dir) !== 1 || hasCompanionStylesheet(dir)) {
         return false;
     }
     const dirName = path.basename(dir);
@@ -56,6 +55,7 @@ const rule = {
                     layers: { type: "array", items: { type: "string" } },
                     shells: { type: "array", items: { type: "string" } },
                 },
+                additionalProperties: false,
             },
         ],
         messages: {
@@ -129,7 +129,7 @@ const rule = {
                     });
                 }
                 const basename = path.basename(filename, path.extname(filename));
-                if (basename !== "index") {
+                if (basename !== "index" || realDir === realRootDir) {
                     return;
                 }
                 const dirName = path.basename(dir);

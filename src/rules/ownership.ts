@@ -22,15 +22,15 @@ interface RuleOptions {
   shells?: string[];
 }
 
-function isCssFile(filePath: string): boolean {
-  return path.basename(filePath).endsWith(".css");
+const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"] as const;
+
+function isStylesheet(filePath: string): boolean {
+  const basename = path.basename(filePath);
+  return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
 
-function countDirectoryContentsRecursive(
-  dir: string,
-): { sourceCount: number; cssCount: number } {
+function countSourceFilesRecursive(dir: string): number {
   let sourceCount = 0;
-  let cssCount = 0;
 
   for (const entry of safeReaddir(dir)) {
     const fullPath = path.join(dir, entry.name);
@@ -39,18 +39,11 @@ function countDirectoryContentsRecursive(
       if (SKIP_DIRS.has(entry.name)) {
         continue;
       }
-      const nested = countDirectoryContentsRecursive(fullPath);
-      sourceCount += nested.sourceCount;
-      cssCount += nested.cssCount;
+      sourceCount += countSourceFilesRecursive(fullPath);
       continue;
     }
 
     if (!entry.isFile()) {
-      continue;
-    }
-
-    if (isCssFile(fullPath)) {
-      cssCount += 1;
       continue;
     }
 
@@ -59,15 +52,22 @@ function countDirectoryContentsRecursive(
     }
   }
 
-  return { sourceCount, cssCount };
+  return sourceCount;
+}
+
+// Only beside the file: a stylesheet several directories down is not a
+// companion, and treating it as one silently exempted the wrapper.
+function hasCompanionStylesheet(dir: string): boolean {
+  return safeReaddir(dir).some(
+    (entry) => entry.isFile() && isStylesheet(entry.name),
+  );
 }
 
 function isSingletonWrapperDirectory(
   dir: string,
   filename: string,
 ): boolean {
-  const { sourceCount, cssCount } = countDirectoryContentsRecursive(dir);
-  if (sourceCount !== 1 || cssCount !== 0) {
+  if (countSourceFilesRecursive(dir) !== 1 || hasCompanionStylesheet(dir)) {
     return false;
   }
 
@@ -91,6 +91,7 @@ const rule: Rule.RuleModule = {
           layers: { type: "array", items: { type: "string" } },
           shells: { type: "array", items: { type: "string" } },
         },
+        additionalProperties: false,
       },
     ],
     messages: {
@@ -182,7 +183,7 @@ const rule: Rule.RuleModule = {
         }
 
         const basename = path.basename(filename, path.extname(filename));
-        if (basename !== "index") {
+        if (basename !== "index" || realDir === realRootDir) {
           return;
         }
 

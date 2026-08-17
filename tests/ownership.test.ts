@@ -33,6 +33,50 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("does not report singletonFolder when a companion stylesheet is not CSS", async () => {
+    const messages = await lintFixture("singleton-scss-ok");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports singletonFolder when the only stylesheet sits in a nested directory", async () => {
+    const messages = await lintFixture("singleton-nested-css");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Widget/Widget.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it("follows require() calls when building the graph", async () => {
+    const messages = await lintFixture("require-cjs");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.js", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("follows import-equals-require declarations when building the graph", async () => {
+    const messages = await lintFixture("require-import-equals");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not count .d.mts declaration files as sources", async () => {
+    const messages = await lintFixture("dts-declaration");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/Foo.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it("does not report mismatchedEntry for a barrel in the root directory", async () => {
+    const messages = await lintFixture("root-barrel", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("rejects unknown options", async () => {
+    await expect(
+      lintFixture("singleton-flat-ok", { roots: "src" }),
+    ).rejects.toThrow();
+  });
+
   it("reports mismatchedEntry when index re-exports one module and outside imports use the barrel", async () => {
     const messages = await lintFixture("mismatch-index");
     expect(sortMessages(messages)).toEqual([
@@ -54,6 +98,11 @@ describe("ownership rule", () => {
 
   it("does not report mismatchedEntry when outside imports target the named entry file", async () => {
     const messages = await lintFixture("matching-entry-ok");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report mismatchedEntry when nothing outside the directory imports it", async () => {
+    const messages = await lintFixture("unused-barrel-ok");
     expect(sortMessages(messages)).toEqual([]);
   });
 
