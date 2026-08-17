@@ -16,7 +16,8 @@ export const SOURCE_EXTS = [
 
 export function isTestFile(p: string): boolean {
   return (
-    p.includes("/__tests__/") || /\.(test|spec)\./.test(path.basename(p))
+    p.split(path.sep).includes("__tests__") ||
+    /\.(test|spec)\./.test(path.basename(p))
   );
 }
 

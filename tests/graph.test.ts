@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { getGraph } from "../src/lib/graph.js";
+import { getGraph, isTestFile } from "../src/lib/graph.js";
 
 const fixtureRoot = path.join(
   fileURLToPath(new URL(".", import.meta.url)),
@@ -13,6 +13,22 @@ const jsExtFixtureRoot = path.join(
   fileURLToPath(new URL(".", import.meta.url)),
   "fixtures/graph-js-ext",
 );
+
+describe("isTestFile", () => {
+  it("returns true when any path segment is __tests__", () => {
+    expect(
+      isTestFile("src" + path.sep + "__tests__" + path.sep + "a.ts"),
+    ).toBe(true);
+  });
+
+  it("returns false for paths that do not contain a __tests__ segment", () => {
+    expect(isTestFile("src/not_tests/a.ts")).toBe(false);
+  });
+
+  it("returns true for .test. or .spec. basenames", () => {
+    expect(isTestFile("foo.test.ts")).toBe(true);
+  });
+});
 
 describe("getGraph", () => {
   it("builds production import graph and caches by root + ignoreGlobs", () => {
