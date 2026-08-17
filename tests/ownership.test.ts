@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import tsParser from "@typescript-eslint/parser";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
 import { lintFixture } from "./helpers/lint-fixture.js";
@@ -287,6 +288,37 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
       { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "follows a relative import whose case does not match the file on disk",
+    async () => {
+      const messages = await lintFixture("wrong-case-import");
+      expect(sortMessages(messages)).toEqual([
+        { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+      ]);
+    },
+  );
+
+  it("sees consumers behind a symlinked directory", async () => {
+    const messages = await lintFixture("symlinked-module", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report privateOutsideOwner on a layer module whose entry is an index file", async () => {
+    const messages = await lintFixture("layer-index-entry", {
+      layers: ["src/ui"],
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not count ignored files toward the singleton check", async () => {
+    const messages = await lintFixture("singleton-ignored", {
+      ignore: ["**/*.generated.ts"],
+    });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/Foo.ts", messageId: "singletonFolder" },
     ]);
   });
 

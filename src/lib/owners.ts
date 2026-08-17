@@ -371,7 +371,9 @@ export function isLayerPublicModule(
 
   const folderName = path.basename(parent);
   const fileBase = path.basename(filePath, path.extname(filePath));
-  return fileBase === folderName;
+  // "index" is an entry everywhere else in the plugin, so a layer folder using
+  // one was told to move somewhere it cannot go.
+  return fileBase === folderName || fileBase === "index";
 }
 
 export function shouldSkipColocation(

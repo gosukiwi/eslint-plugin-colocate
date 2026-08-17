@@ -38,24 +38,40 @@ export function matchesIgnore(relPath, ignoreGlobs) {
 function shouldSkip(relPath, ignoreGlobs) {
     return matchesIgnore(relPath, ignoreGlobs);
 }
-function walkDir(dir, rootDir, ignoreGlobs, files) {
+function walkDir(dir, rootDir, ignoreGlobs, files, visitedDirs) {
+    const realDir = safeRealpath(dir);
+    if (realDir === undefined || visitedDirs.has(realDir)) {
+        return;
+    }
+    visitedDirs.add(realDir);
     for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
         const relPath = path.relative(rootDir, fullPath);
-        if (entry.isDirectory()) {
+        // readdir reports a symlink as neither file nor directory, so entries were
+        // dropped here while the resolver happily followed them - a module behind a
+        // linked directory was invisible as a consumer. Stat follows the link.
+        const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
+        const isDirectory = entry.isSymbolicLink()
+            ? (stat?.isDirectory() ?? false)
+            : entry.isDirectory();
+        const isFile = entry.isSymbolicLink()
+            ? (stat?.isFile() ?? false)
+            : entry.isFile();
+        if (isDirectory) {
             if (SKIP_DIRS.has(entry.name) || shouldSkip(relPath, ignoreGlobs)) {
                 continue;
             }
-            walkDir(fullPath, rootDir, ignoreGlobs, files);
+            walkDir(fullPath, rootDir, ignoreGlobs, files, visitedDirs);
             continue;
         }
-        if (!entry.isFile() || shouldSkip(relPath, ignoreGlobs)) {
+        if (!isFile || shouldSkip(relPath, ignoreGlobs)) {
             continue;
         }
         if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
             const realPath = safeRealpath(fullPath);
             if (realPath !== undefined) {
-                files.push(realPath);
+                // A Set because following symlinks can reach the same real file twice.
+                files.add(realPath);
             }
         }
     }
@@ -222,10 +238,16 @@ function buildGraphWithConfigs(rootDir, ignoreGlobs) {
     if (resolvedRoot === undefined) {
         return { graph: { importers: new Map(), files: [] }, configPaths: [] };
     }
-    const files = [];
-    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, files);
-    files.sort();
+    const collected = new Set();
+    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, new Set());
+    const files = [...collected].sort();
     const fileSet = new Set(files);
+    // On a case-insensitive filesystem the compiler resolves "./Helper" against
+    // helper.ts but hands back the path as written, which matched nothing here and
+    // silently dropped the edge. Recover the real casing.
+    const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
+        ? undefined
+        : new Map(files.map((file) => [file.toLowerCase(), file]));
     const importers = new Map();
     const settings = createResolutionSettings(resolvedRoot);
     for (const file of files) {
@@ -236,12 +258,18 @@ function buildGraphWithConfigs(rootDir, ignoreGlobs) {
         const fromDir = path.dirname(file);
         for (const specifier of extractSpecifiers(content, file)) {
             const resolved = resolveSpecifier(specifier, fromDir, settings);
-            if (resolved === undefined || !fileSet.has(resolved)) {
+            if (resolved === undefined) {
                 continue;
             }
-            const existing = importers.get(resolved);
+            const target = fileSet.has(resolved)
+                ? resolved
+                : filesByLowerCase?.get(resolved.toLowerCase());
+            if (target === undefined) {
+                continue;
+            }
+            const existing = importers.get(target);
             if (existing === undefined) {
-                importers.set(resolved, [file]);
+                importers.set(target, [file]);
             }
             else if (!existing.includes(file)) {
                 existing.push(file);
@@ -264,6 +292,12 @@ function stampFiles(files) {
         }
     }
     return stamps;
+}
+function hasCoarseTimestamps(stamps) {
+    if (stamps.size === 0) {
+        return false;
+    }
+    return [...stamps.values()].every((stamp) => stamp.mtimeMs % 1000 === 0);
 }
 function stampConfigs(configPaths) {
     const stamps = [];
@@ -312,13 +346,19 @@ function isProductionGraphFile(currentFile, rootDir, ignoreGlobs) {
 // time, so checking just that file left an edit to any other file invisible: the
 // report neither appeared nor - worse - went away once the user fixed the import
 // in the file that caused it. Deletions were never noticed at all.
-function trackedFilesChanged(cached) {
+function trackedFilesChanged(cached, now) {
     for (const [file, prev] of cached.stamps) {
         const stat = safeStat(file);
         if (stat === undefined ||
             stat.mtimeMs !== prev.mtimeMs ||
             stat.size !== prev.size) {
             return true;
+        }
+        if (cached.coarseTimestamps) {
+            const age = now - stat.mtimeMs;
+            if (age >= 0 && age < 1000) {
+                return true;
+            }
         }
     }
     return false;
@@ -332,7 +372,7 @@ function needsRebuild(cached, currentFile, rootDir, ignoreGlobs) {
         now - cached.validatedAt >= REVALIDATE_AFTER_MS) {
         cached.visited.clear();
         cached.validatedAt = now;
-        if (trackedFilesChanged(cached)) {
+        if (trackedFilesChanged(cached, now)) {
             return true;
         }
     }
@@ -351,12 +391,14 @@ export function getGraph(rootDir, ignoreGlobs, currentFile) {
         return cached.graph;
     }
     const { graph, configPaths } = buildGraphWithConfigs(rootDir, ignoreGlobs);
+    const stamps = stampFiles(graph.files);
     cache.set(key, {
         graph,
-        stamps: stampFiles(graph.files),
+        stamps,
         configs: stampConfigs(configPaths),
         visited: new Set([currentFile]),
         validatedAt: Date.now(),
+        coarseTimestamps: hasCoarseTimestamps(stamps),
     });
     return graph;
 }

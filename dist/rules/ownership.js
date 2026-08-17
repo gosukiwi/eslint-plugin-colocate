@@ -7,15 +7,20 @@ function isStylesheet(filePath) {
     const basename = path.basename(filePath);
     return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
-function countSourceFilesRecursive(dir) {
+function countSourceFilesRecursive(dir, rootDir, ignore) {
     let sourceCount = 0;
     for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
+        // Files excluded from the graph must not count here either, or an ignored
+        // generated file keeps a wrapper directory looking populated.
+        if (matchesIgnore(path.relative(rootDir, fullPath), ignore)) {
+            continue;
+        }
         if (entry.isDirectory()) {
             if (SKIP_DIRS.has(entry.name)) {
                 continue;
             }
-            sourceCount += countSourceFilesRecursive(fullPath);
+            sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
             continue;
         }
         if (!entry.isFile()) {
@@ -32,8 +37,9 @@ function countSourceFilesRecursive(dir) {
 function hasCompanionStylesheet(dir) {
     return safeReaddir(dir).some((entry) => entry.isFile() && isStylesheet(entry.name));
 }
-function isSingletonWrapperDirectory(dir, filename) {
-    if (countSourceFilesRecursive(dir) !== 1 || hasCompanionStylesheet(dir)) {
+function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
+    if (countSourceFilesRecursive(dir, rootDir, ignore) !== 1 ||
+        hasCompanionStylesheet(dir)) {
         return false;
     }
     const dirName = path.basename(dir);
@@ -109,7 +115,7 @@ const rule = {
                     shellGlobs,
                 };
                 if (realDir !== realRootDir &&
-                    isSingletonWrapperDirectory(realDir, realFilename)) {
+                    isSingletonWrapperDirectory(realDir, realFilename, realRootDir, ignore)) {
                     context.report({
                         node,
                         messageId: "singletonFolder",

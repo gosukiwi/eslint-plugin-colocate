@@ -29,17 +29,26 @@ function isStylesheet(filePath: string): boolean {
   return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
 
-function countSourceFilesRecursive(dir: string): number {
+function countSourceFilesRecursive(
+  dir: string,
+  rootDir: string,
+  ignore: string[],
+): number {
   let sourceCount = 0;
 
   for (const entry of safeReaddir(dir)) {
     const fullPath = path.join(dir, entry.name);
+    // Files excluded from the graph must not count here either, or an ignored
+    // generated file keeps a wrapper directory looking populated.
+    if (matchesIgnore(path.relative(rootDir, fullPath), ignore)) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) {
         continue;
       }
-      sourceCount += countSourceFilesRecursive(fullPath);
+      sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
       continue;
     }
 
@@ -66,8 +75,13 @@ function hasCompanionStylesheet(dir: string): boolean {
 function isSingletonWrapperDirectory(
   dir: string,
   filename: string,
+  rootDir: string,
+  ignore: string[],
 ): boolean {
-  if (countSourceFilesRecursive(dir) !== 1 || hasCompanionStylesheet(dir)) {
+  if (
+    countSourceFilesRecursive(dir, rootDir, ignore) !== 1 ||
+    hasCompanionStylesheet(dir)
+  ) {
     return false;
   }
 
@@ -158,7 +172,7 @@ const rule: Rule.RuleModule = {
 
         if (
           realDir !== realRootDir &&
-          isSingletonWrapperDirectory(realDir, realFilename)
+          isSingletonWrapperDirectory(realDir, realFilename, realRootDir, ignore)
         ) {
           context.report({
             node,
