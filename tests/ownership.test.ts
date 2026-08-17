@@ -153,6 +153,30 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("does not report sharedInsideOwner when no consumer owns the shared directory", async () => {
+    const messages = await lintFixture("shared-standalone-consumer");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports sharedInsideOwner when the shared file sits inside a non-consumer owner", async () => {
+    const messages = await lintFixture("shared-inside-other-owner");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/C/parts/fmt.ts", messageId: "sharedInsideOwner" },
+    ]);
+  });
+
+  it("does not report sharedInsideOwner on an owner folder's own entry file", async () => {
+    const messages = await lintFixture("shared-owner-entry");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("reports mismatchedEntry when one sibling is re-exported as both value and type", async () => {
+    const messages = await lintFixture("type-split-barrel");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
   it("does not report privateOutsideOwner on a layer public module with one consumer", async () => {
     const messages = await lintFixture("layer-single-consumer", {
       layers: ["src/ui"],

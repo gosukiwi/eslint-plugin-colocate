@@ -32,7 +32,10 @@ export function collectLocalReExports(indexFile: string, dir: string): string[] 
     return [];
   }
   const sourceFile = parseSourceFile(indexFile, content);
-  const targets: string[] = [];
+  // Keyed by module, not by declaration: the idiomatic value + type split
+  // ("export { x } from './X'; export type { T } from './X';") re-exports one
+  // sibling and must not look like a two-module namespace barrel.
+  const targets = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (
@@ -44,7 +47,7 @@ export function collectLocalReExports(indexFile: string, dir: string): string[] 
       if (specifier.startsWith(".")) {
         const resolved = resolveSpecifier(specifier, dir);
         if (resolved !== undefined && path.dirname(resolved) === realDir) {
-          targets.push(resolved);
+          targets.add(resolved);
         }
       }
     }
@@ -52,7 +55,7 @@ export function collectLocalReExports(indexFile: string, dir: string): string[] 
   };
 
   visit(sourceFile);
-  return targets;
+  return [...targets];
 }
 
 export function countLocalReExports(indexFile: string, dir: string): number {
@@ -203,18 +206,25 @@ function getRoots(graph: Graph): Set<string> {
     graph.files,
     (file) => imports.get(file) ?? [],
   );
-  const roots = new Set<string>();
-
+  // Entry points are whole components, not individual files. Inside a cycle
+  // nothing is importer-free, so asking for zero importers leaves a cyclic
+  // entry with no roots at all and strips the shell exemption from the whole
+  // project; asking each file individually would promote the inner half of a
+  // cycle that something outside imports.
+  const importedFromOutside = new Set<number>();
   for (const file of graph.files) {
-    const importers = graph.importers.get(file) ?? [];
-    // No importers at all is the common case. A file whose only importers sit
-    // in its own cycle also counts: inside a cycle nothing is importer-free, so
-    // requiring that would leave a cyclic entry point with no roots and strip
-    // the shell exemption from the whole project.
-    const importedFromOutside = importers.some(
-      (importer) => componentIds.get(importer) !== componentIds.get(file),
-    );
-    if (!importedFromOutside) {
+    const component = componentIds.get(file);
+    for (const importer of graph.importers.get(file) ?? []) {
+      if (componentIds.get(importer) !== component && component !== undefined) {
+        importedFromOutside.add(component);
+      }
+    }
+  }
+
+  const roots = new Set<string>();
+  for (const file of graph.files) {
+    const component = componentIds.get(file);
+    if (component === undefined || !importedFromOutside.has(component)) {
       roots.add(file);
     }
   }
@@ -383,9 +393,6 @@ export function isPrivateOutsideOwner(
     return false;
   }
   if (owner.kind === "folder") {
-    if (isMatchingNameEntry(filePath, owner.path)) {
-      return false;
-    }
     return !isInsideDir(filePath, owner.path);
   }
 
@@ -408,10 +415,13 @@ function longestCommonAncestor(dirs: string[]): string {
       break;
     }
   }
-  if (common.length === 0) {
-    return path.sep;
-  }
   return common.join(path.sep);
+}
+
+function deepestDir(dirs: string[]): string {
+  return dirs.reduce((deepest, dir) =>
+    dir.split(path.sep).length > deepest.split(path.sep).length ? dir : deepest,
+  );
 }
 
 export function getSharedColocationIssue(
@@ -429,15 +439,31 @@ export function getSharedColocationIssue(
 
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
-  const containing = ownerDirs.filter((dir) => isInsideDir(filePath, dir));
+
+  // Only a folder owner has a folder to be inside of. A standalone owner's
+  // parent directory belongs to nobody, so counting it here reported ordinary
+  // shared directories. The subject's own folder owner counts even though it
+  // consumes nothing: that is a shared file buried in an unrelated tree, and
+  // leaving it out meant a second consumer silenced a real report.
+  const folderDirs = [...owners.values()]
+    .filter((owner) => owner.kind === "folder")
+    .map((owner) => owner.path);
+  const subjectOwner = getOwner(filePath, ctx.graph, ctx.rootDir);
+  if (subjectOwner.kind === "folder") {
+    folderDirs.push(subjectOwner.path);
+  }
+
+  const containing = [...new Set(folderDirs)].filter((dir) =>
+    isInsideDir(filePath, dir),
+  );
   if (containing.length > 0) {
-    const longestLen = Math.max(...containing.map((dir) => dir.length));
-    const innermost = containing.filter((dir) => dir.length === longestLen);
-    if (innermost.length === 1 && innermost[0] !== lca) {
+    const innermost = deepestDir(containing);
+    if (innermost !== lca && !isMatchingNameEntry(filePath, innermost)) {
       return "sharedInsideOwner";
     }
   }
-  if (filePath !== lca && !isInsideDir(filePath, lca)) {
+
+  if (!isInsideDir(filePath, lca)) {
     return "sharedTooHigh";
   }
   return undefined;
