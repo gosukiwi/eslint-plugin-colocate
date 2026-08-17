@@ -352,7 +352,16 @@ interface CachedGraph {
   graph: Graph;
   stamps: Map<string, FileStamp>;
   configs: TsconfigStamp[];
+  // Files linted since the last full validation, used to detect the start of a
+  // new lint pass.
+  visited: Set<string>;
+  validatedAt: number;
 }
+
+// Upper bound on how long a stale graph can survive a sequence of lints that
+// never revisits a file. Well below the time between a human edit and the next
+// lint, and far above the gap between two files in one pass.
+const REVALIDATE_AFTER_MS = 100;
 
 const cache = new Map<string, CachedGraph>();
 
@@ -388,19 +397,54 @@ function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
   });
 }
 
+// Mirrors what walkDir would have collected. Anything walkDir skips must be
+// skipped here too, or linting one such file rebuilds the whole graph every
+// time because its stamp is never recorded.
 function isProductionGraphFile(
   currentFile: string,
   rootDir: string,
   ignoreGlobs: string[],
 ): boolean {
-  const relPath = path.relative(rootDir, currentFile);
+  const realRoot = safeRealpath(rootDir);
+  if (realRoot === undefined) {
+    return false;
+  }
+
+  const relPath = path.relative(realRoot, currentFile);
   if (relPath === "" || relPath.startsWith("..") || path.isAbsolute(relPath)) {
     return false;
   }
   if (!isSourceFile(currentFile) || isTestFile(currentFile)) {
     return false;
   }
-  return !matchesIgnore(relPath, ignoreGlobs);
+
+  const segments = relPath.split(path.sep);
+  for (let i = 1; i <= segments.length; i += 1) {
+    const prefix = segments.slice(0, i).join(path.sep);
+    if (SKIP_DIRS.has(segments[i - 1]) || matchesIgnore(prefix, ignoreGlobs)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Every tracked file, not only the one being linted. ESLint lints one file at a
+// time, so checking just that file left an edit to any other file invisible: the
+// report neither appeared nor - worse - went away once the user fixed the import
+// in the file that caused it. Deletions were never noticed at all.
+function trackedFilesChanged(cached: CachedGraph): boolean {
+  for (const [file, prev] of cached.stamps) {
+    const stat = safeStat(file);
+    if (
+      stat === undefined ||
+      stat.mtimeMs !== prev.mtimeMs ||
+      stat.size !== prev.size
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function needsRebuild(
@@ -409,16 +453,26 @@ function needsRebuild(
   rootDir: string,
   ignoreGlobs: string[],
 ): boolean {
-  const prev = cached.stamps.get(currentFile);
-  if (prev === undefined) {
-    return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
+  // Scanning every file for every linted file is O(files^2) stats per run, so
+  // validate once per pass instead: seeing a file again means a new pass began.
+  // The elapsed-time bound covers passes that never revisit a file.
+  const now = Date.now();
+  if (
+    cached.visited.has(currentFile) ||
+    now - cached.validatedAt >= REVALIDATE_AFTER_MS
+  ) {
+    cached.visited.clear();
+    cached.validatedAt = now;
+    if (trackedFilesChanged(cached)) {
+      return true;
+    }
   }
+  cached.visited.add(currentFile);
 
-  const stat = safeStat(currentFile);
-  if (stat === undefined) {
-    return true;
+  if (cached.stamps.has(currentFile)) {
+    return false;
   }
-  return stat.mtimeMs !== prev.mtimeMs || stat.size !== prev.size;
+  return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
 }
 
 export function getGraph(
@@ -441,6 +495,8 @@ export function getGraph(
     graph,
     stamps: stampFiles(graph.files),
     configs: stampConfigs(configPaths),
+    visited: new Set([currentFile]),
+    validatedAt: Date.now(),
   });
   return graph;
 }

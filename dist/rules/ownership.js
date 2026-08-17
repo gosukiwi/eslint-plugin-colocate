@@ -101,8 +101,8 @@ const rule = {
                 }
                 const realDir = path.dirname(realFilename);
                 const dir = realDir;
-                const layerDirs = resolveLayerDirectories(cwd, layers);
                 const graph = getGraph(rootDir, ignore, realFilename);
+                const layerDirs = resolveLayerDirectories(graph, cwd, layers);
                 const ownershipContext = {
                     graph,
                     rootDir: realRootDir,

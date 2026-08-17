@@ -23,7 +23,7 @@ interface ShellCache {
 }
 
 const shellsByGraph = new WeakMap<Graph, ShellCache>();
-const layerDirsCache = new Map<string, string[]>();
+const layerDirsByGraph = new WeakMap<Graph, Map<string, string[]>>();
 
 export function collectLocalReExports(indexFile: string, dir: string): string[] {
   const content = safeReadFile(indexFile);
@@ -309,17 +309,45 @@ function collectLayerDirs(
   }
 }
 
-export function resolveLayerDirectories(
+export function collectLayerDirectories(
   cwd: string,
   layerGlobs: string[],
 ): string[] {
-  if (layerGlobs.length === 0) return [];
-  const key = cwd + "\0" + layerGlobs.join("\0");
-  const cached = layerDirsCache.get(key);
-  if (cached !== undefined) return cached;
+  if (layerGlobs.length === 0) {
+    return [];
+  }
   const dirs: string[] = [];
   collectLayerDirs(cwd, cwd, layerGlobs, dirs);
-  layerDirsCache.set(key, dirs);
+  return dirs;
+}
+
+// Memoised against the graph rather than for the life of the process: a layer
+// directory created mid-session used to stay invisible until ESLint restarted,
+// which meant a permanent false privateOutsideOwner on every module inside it.
+// A new directory rebuilds the graph, which drops this entry with it.
+export function resolveLayerDirectories(
+  graph: Graph,
+  cwd: string,
+  layerGlobs: string[],
+): string[] {
+  if (layerGlobs.length === 0) {
+    return [];
+  }
+
+  const key = cwd + "\0" + layerGlobs.join("\0");
+  let perGraph = layerDirsByGraph.get(graph);
+  if (perGraph === undefined) {
+    perGraph = new Map();
+    layerDirsByGraph.set(graph, perGraph);
+  }
+
+  const cached = perGraph.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const dirs = collectLayerDirectories(cwd, layerGlobs);
+  perGraph.set(key, dirs);
   return dirs;
 }
 

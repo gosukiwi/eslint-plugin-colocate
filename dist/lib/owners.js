@@ -4,7 +4,7 @@ import ts from "typescript";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import { matchesIgnore, parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
 const shellsByGraph = new WeakMap();
-const layerDirsCache = new Map();
+const layerDirsByGraph = new WeakMap();
 export function collectLocalReExports(indexFile, dir) {
     const content = safeReadFile(indexFile);
     const realDir = safeRealpath(dir);
@@ -222,16 +222,34 @@ function collectLayerDirs(dir, cwd, layerGlobs, out) {
         collectLayerDirs(fullPath, cwd, layerGlobs, out);
     }
 }
-export function resolveLayerDirectories(cwd, layerGlobs) {
-    if (layerGlobs.length === 0)
+export function collectLayerDirectories(cwd, layerGlobs) {
+    if (layerGlobs.length === 0) {
         return [];
-    const key = cwd + "\0" + layerGlobs.join("\0");
-    const cached = layerDirsCache.get(key);
-    if (cached !== undefined)
-        return cached;
+    }
     const dirs = [];
     collectLayerDirs(cwd, cwd, layerGlobs, dirs);
-    layerDirsCache.set(key, dirs);
+    return dirs;
+}
+// Memoised against the graph rather than for the life of the process: a layer
+// directory created mid-session used to stay invisible until ESLint restarted,
+// which meant a permanent false privateOutsideOwner on every module inside it.
+// A new directory rebuilds the graph, which drops this entry with it.
+export function resolveLayerDirectories(graph, cwd, layerGlobs) {
+    if (layerGlobs.length === 0) {
+        return [];
+    }
+    const key = cwd + "\0" + layerGlobs.join("\0");
+    let perGraph = layerDirsByGraph.get(graph);
+    if (perGraph === undefined) {
+        perGraph = new Map();
+        layerDirsByGraph.set(graph, perGraph);
+    }
+    const cached = perGraph.get(key);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const dirs = collectLayerDirectories(cwd, layerGlobs);
+    perGraph.set(key, dirs);
     return dirs;
 }
 export function isLayerPublicModule(filePath, layerDirs) {
