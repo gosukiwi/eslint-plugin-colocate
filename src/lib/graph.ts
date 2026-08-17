@@ -58,25 +58,34 @@ function shouldSkip(relPath: string, ignoreGlobs: string[]): boolean {
   return matchesIgnore(relPath, ignoreGlobs);
 }
 
+function isWithinRoot(candidate: string, rootDir: string): boolean {
+  return candidate === rootDir || candidate.startsWith(rootDir + path.sep);
+}
+
 function walkDir(
   dir: string,
   rootDir: string,
   ignoreGlobs: string[],
   files: Set<string>,
-  visitedDirs: Set<string>,
+  ancestorRealDirs: Set<string>,
+  behindLink: boolean,
 ): void {
   const realDir = safeRealpath(dir);
-  if (realDir === undefined || visitedDirs.has(realDir)) {
+  // Guarded per branch rather than globally: two sibling links to one real
+  // directory are both legitimate, and a global set let whichever path was
+  // walked first decide the other's fate - so an ignore glob aimed at a link
+  // erased the real directory too.
+  if (realDir === undefined || ancestorRealDirs.has(realDir)) {
     return;
   }
-  visitedDirs.add(realDir);
+  const nested = new Set(ancestorRealDirs).add(realDir);
 
   for (const entry of safeReaddir(dir)) {
     const fullPath = path.join(dir, entry.name);
     const relPath = path.relative(rootDir, fullPath);
 
     // readdir reports a symlink as neither file nor directory, so entries were
-    // dropped here while the resolver happily followed them - a module behind a
+    // dropped here while the resolver followed them happily - a module behind a
     // linked directory was invisible as a consumer. Stat follows the link.
     const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
     const isDirectory = entry.isSymbolicLink()
@@ -86,24 +95,50 @@ function walkDir(
       ? (stat?.isFile() ?? false)
       : entry.isFile();
 
-    if (isDirectory) {
-      if (SKIP_DIRS.has(entry.name) || shouldSkip(relPath, ignoreGlobs)) {
-        continue;
-      }
-      walkDir(fullPath, rootDir, ignoreGlobs, files, visitedDirs);
+    if (!isDirectory && !isFile) {
+      continue;
+    }
+    if (SKIP_DIRS.has(entry.name) || shouldSkip(relPath, ignoreGlobs)) {
       continue;
     }
 
-    if (!isFile || shouldSkip(relPath, ignoreGlobs)) {
+    // Only links (and anything below one) need resolving; on a tree with no
+    // symlinks fullPath is already canonical, because the walk started from the
+    // resolved root.
+    const isLink = entry.isSymbolicLink();
+    const realPath =
+      isLink || behindLink ? safeRealpath(fullPath) : fullPath;
+    if (realPath === undefined) {
+      continue;
+    }
+    // A link is also checked under the path it really points at, so ignoring a
+    // directory cannot be undone by reaching it through a link, and a link onto
+    // an ancestor of the root cannot drag the entire tree above root into the
+    // graph.
+    if (realPath !== fullPath) {
+      if (isWithinRoot(rootDir, realPath)) {
+        continue;
+      }
+      if (shouldSkip(path.relative(rootDir, realPath), ignoreGlobs)) {
+        continue;
+      }
+    }
+
+    if (isDirectory) {
+      walkDir(
+        fullPath,
+        rootDir,
+        ignoreGlobs,
+        files,
+        nested,
+        behindLink || isLink,
+      );
       continue;
     }
 
     if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
-      const realPath = safeRealpath(fullPath);
-      if (realPath !== undefined) {
-        // A Set because following symlinks can reach the same real file twice.
-        files.add(realPath);
-      }
+      // A Set because following symlinks can reach the same real file twice.
+      files.add(realPath);
     }
   }
 }
@@ -295,6 +330,49 @@ function probeResolvedPath(base: string): string | undefined {
   return undefined;
 }
 
+// The compiler will not try .cts/.cjs for an extensionless specifier, and for a
+// non-relative one there is no path left to probe once it gives up - so the
+// mapping is expanded here, longest prefix first, exactly as tsc orders it.
+function aliasCandidates(
+  specifier: string,
+  options: ts.CompilerOptions,
+): string[] {
+  const paths = options.paths;
+  if (paths === undefined) {
+    return [];
+  }
+
+  const base =
+    options.baseUrl ??
+    (options as { pathsBasePath?: string }).pathsBasePath ??
+    undefined;
+  if (base === undefined) {
+    return [];
+  }
+
+  const patterns = Object.keys(paths)
+    .filter((pattern) => {
+      const star = pattern.indexOf("*");
+      return star === -1
+        ? pattern === specifier
+        : specifier.startsWith(pattern.slice(0, star));
+    })
+    .sort((a, b) => b.length - a.length);
+
+  const candidates: string[] = [];
+  for (const pattern of patterns) {
+    const star = pattern.indexOf("*");
+    const rest = star === -1 ? "" : specifier.slice(star);
+    for (const target of paths[pattern] ?? []) {
+      const targetStar = target.indexOf("*");
+      const mapped =
+        targetStar === -1 ? target : target.slice(0, targetStar) + rest;
+      candidates.push(path.resolve(base, mapped));
+    }
+  }
+  return candidates;
+}
+
 export function resolveSpecifier(
   specifier: string,
   fromDir: string,
@@ -317,9 +395,15 @@ export function resolveSpecifier(
   }
 
   // Extensions the compiler will not resolve on its own (.cts, .cjs) still
-  // resolve here, so relative imports keep working regardless.
+  // resolve here, for relative and aliased specifiers alike.
   if (specifier.startsWith(".")) {
     return probeResolvedPath(path.resolve(fromDir, specifier));
+  }
+  for (const candidate of aliasCandidates(specifier, options)) {
+    const resolved = probeResolvedPath(candidate);
+    if (resolved !== undefined) {
+      return resolved;
+    }
   }
   return undefined;
 }
@@ -337,7 +421,7 @@ function buildGraphWithConfigs(
     return { graph: { importers: new Map(), files: [] }, configPaths: [] };
   }
   const collected = new Set<string>();
-  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, new Set());
+  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, new Set(), false);
   const files = [...collected].sort();
 
   const fileSet = new Set(files);
@@ -365,7 +449,10 @@ function buildGraphWithConfigs(
       const target = fileSet.has(resolved)
         ? resolved
         : filesByLowerCase?.get(resolved.toLowerCase());
-      if (target === undefined) {
+      // A file importing itself says nothing about ownership, and the
+      // case-insensitive fallback would otherwise invent such an edge from a
+      // wrong-case self import.
+      if (target === undefined || target === file) {
         continue;
       }
 
@@ -440,7 +527,10 @@ function stampConfigs(configPaths: string[]): TsconfigStamp[] {
 }
 
 function tsconfigNeedsRebuild(cached: CachedGraph, rootDir: string): boolean {
-  const currentPath = findTsconfig(rootDir);
+  // Resolved first: the stored path came from the resolved root, so comparing a
+  // raw symlinked root found a different config every time and rebuilt the
+  // whole graph on every lint.
+  const currentPath = findTsconfig(safeRealpath(rootDir) ?? rootDir);
   const previousPath = cached.configs[0]?.path;
   if (currentPath !== previousPath) {
     return true;

@@ -140,9 +140,14 @@ sets for `tsc`: extensionless imports resolve, and `./x.js` resolves onto `x.ts`
 Graph edges come from `import`, `export ... from`, dynamic `import()`,
 `require()` and `import x = require()`.
 
-Symlinked files and directories inside the tree are followed. On a
-case-insensitive filesystem, an import whose case does not match the file on disk
-still resolves, matching what the compiler and your bundler do.
+Symlinked files and directories are followed, so a package linked into the tree is
+visible as a consumer — except when the link points at an ancestor of `root`,
+which would pull the whole tree above `root` into the graph. `ignore` globs are
+applied to a link's own path and to the path it resolves to, so ignoring a
+directory holds however it is reached.
+
+On a case-insensitive filesystem, an import whose case does not match the file on
+disk still resolves, matching what the compiler and your bundler do.
 
 Skipped everywhere: `node_modules`, `dist`, `coverage`, `.git`, `.hg`, `.svn`,
 declaration files (`.d.ts`, `.d.mts`, `.d.cts`), and tests — any path containing a
