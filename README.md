@@ -206,8 +206,12 @@ on disk. Import *specifiers* are recovered case-insensitively; the paths ESLint
 and your config hand us are not.
 
 **A mid-pass edit can be missed for up to 100 ms.** The graph is revalidated once
-per lint pass; an edit landing between two files of the same pass is picked up on
-the next one.
+per lint pass; an edit landing between two files of the same pass is picked up by
+the next lint of a file already seen, or after 100 ms, whichever comes first.
+Change detection compares size, mtime and ctime, so a replacement that preserved
+mtime (`cp -p`, `rsync -t`, a CI cache restore) is still noticed; on a filesystem
+reporting whole-second timestamps, a write landing in the same second as the graph
+build is treated as suspect rather than trusted.
 
 **`layers` globs match directories under `root` as well as under the working
 directory.** `layers: ["*"]` therefore matches every top-level directory in

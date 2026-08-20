@@ -405,13 +405,29 @@ function buildGraphWithConfigs(rootDir, ignoreGlobs) {
 // never revisits a file. Well below the time between a human edit and the next
 // lint, and far above the gap between two files in one pass.
 const REVALIDATE_AFTER_MS = 100;
+// On a filesystem that reports whole-second timestamps, a write landing in the
+// same second as the build is indistinguishable from one that preceded it, so
+// such a stamp cannot be trusted. Comparing against the build time rather than
+// against "now" is what makes this exact: keying off the age of the mtime gave a
+// window that shrank to nothing for a write late in a second.
+export function stampIsAmbiguous(mtimeMs, builtAt, coarseTimestamps) {
+    if (!coarseTimestamps) {
+        return false;
+    }
+    const buildSecond = Math.floor(builtAt / 1000) * 1000;
+    return mtimeMs >= buildSecond && mtimeMs < buildSecond + 1000;
+}
 const cache = new Map();
 function stampFiles(files) {
     const stamps = new Map();
     for (const file of files) {
         const stat = safeStat(file);
         if (stat !== undefined) {
-            stamps.set(file, { mtimeMs: stat.mtimeMs, size: stat.size });
+            stamps.set(file, {
+                mtimeMs: stat.mtimeMs,
+                ctimeMs: stat.ctimeMs,
+                size: stat.size,
+            });
         }
     }
     return stamps;
@@ -465,19 +481,17 @@ function isProductionGraphFile(currentFile, rootDir, ignoreGlobs) {
 // time, so checking just that file left an edit to any other file invisible: the
 // report neither appeared nor - worse - went away once the user fixed the import
 // in the file that caused it. Deletions were never noticed at all.
-function trackedFilesChanged(cached, now) {
+function trackedFilesChanged(cached) {
     for (const [file, prev] of cached.stamps) {
         const stat = safeStat(file);
         if (stat === undefined ||
             stat.mtimeMs !== prev.mtimeMs ||
+            stat.ctimeMs !== prev.ctimeMs ||
             stat.size !== prev.size) {
             return true;
         }
-        if (cached.coarseTimestamps) {
-            const age = now - stat.mtimeMs;
-            if (age >= 0 && age < 1000) {
-                return true;
-            }
+        if (stampIsAmbiguous(stat.mtimeMs, cached.builtAt, cached.coarseTimestamps)) {
+            return true;
         }
     }
     return false;
@@ -491,7 +505,7 @@ function needsRebuild(cached, currentFile, rootDir, ignoreGlobs) {
         now - cached.validatedAt >= REVALIDATE_AFTER_MS) {
         cached.visited.clear();
         cached.validatedAt = now;
-        if (trackedFilesChanged(cached, now)) {
+        if (trackedFilesChanged(cached)) {
             return true;
         }
     }
@@ -518,6 +532,7 @@ export function getGraph(rootDir, ignoreGlobs, currentFile) {
         visited: new Set([currentFile]),
         validatedAt: Date.now(),
         coarseTimestamps: hasCoarseTimestamps(stamps),
+        builtAt: Date.now(),
     });
     return graph;
 }

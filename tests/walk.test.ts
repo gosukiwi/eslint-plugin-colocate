@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildGraph, getGraph, resolveSpecifier } from "../src/lib/graph.js";
+import {
+  buildGraph,
+  getGraph,
+  resolveSpecifier,
+  stampIsAmbiguous,
+} from "../src/lib/graph.js";
 
 const created: string[] = [];
 
@@ -211,6 +216,29 @@ describe("caching with a symlinked root", () => {
     fs.utimesSync(other, pinned, pinned);
 
     expect(getGraph(root, [], current)).not.toBe(first);
+  });
+
+  it("rebuilds when a same-size edit preserves the timestamp", () => {
+    const dir = project({
+      "src/a.ts": 'import "./x";\n',
+      "src/x.ts": "export const x = 1;\n",
+      "src/y.ts": "export const y = 1;\n",
+    });
+    const root = path.join(dir, "src");
+    const edited = path.join(dir, "src/a.ts");
+    const pinned = 1_000_000;
+    fs.utimesSync(edited, pinned, pinned);
+
+    const first = getGraph(root, [], edited);
+    expect(first.importers.get(path.join(dir, "src/x.ts"))).toEqual([edited]);
+
+    // Same byte length, same mtime: only ctime moves, and userland cannot set it.
+    fs.writeFileSync(edited, 'import "./y";\n');
+    fs.utimesSync(edited, pinned, pinned);
+
+    const second = getGraph(root, [], edited);
+    expect(second).not.toBe(first);
+    expect(second.importers.get(path.join(dir, "src/y.ts"))).toEqual([edited]);
   });
 
   it("rebuilds when a config reached through extends changes", () => {
