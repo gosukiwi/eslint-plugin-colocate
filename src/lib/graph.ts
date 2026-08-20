@@ -336,7 +336,7 @@ function loadCompilerOptions(rootDir: string): {
   };
 }
 
-export function createResolutionSettings(rootDir: string): ResolutionSettings {
+function createResolutionSettings(rootDir: string): ResolutionSettings {
   const { options, configPaths } = loadCompilerOptions(rootDir);
   const resolutionOptions: ts.CompilerOptions = {
     ...options,

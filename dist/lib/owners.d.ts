@@ -11,7 +11,6 @@ export interface ReExports {
     total: number;
 }
 export declare function collectReExports(indexFile: string, dir: string): ReExports;
-export declare function countLocalReExports(indexFile: string, dir: string): number;
 export interface Owner {
     kind: "folder" | "standalone";
     path: string;

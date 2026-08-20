@@ -43,7 +43,7 @@ export function collectReExports(indexFile, dir) {
     visit(sourceFile);
     return { local: [...local], total: specifiers.size };
 }
-export function countLocalReExports(indexFile, dir) {
+function countLocalReExports(indexFile, dir) {
     return collectReExports(indexFile, dir).local.length;
 }
 function isNamespaceBarrel(filePath) {
@@ -336,6 +336,9 @@ function ownerDir(owner) {
     return owner.kind === "folder" ? owner.path : path.dirname(owner.path);
 }
 function longestCommonAncestor(dirs) {
+    if (dirs.length === 0) {
+        return "";
+    }
     const segments = dirs.map((dir) => dir.split(path.sep));
     const minLen = Math.min(...segments.map((parts) => parts.length));
     const common = [];

@@ -54,11 +54,34 @@ function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
     const fileBasename = path.basename(filename, path.extname(filename));
     return fileBasename === dirName || fileBasename === "index";
 }
+// A relative root is resolved against the working directory, but ESLint may be
+// invoked from anywhere - a subdirectory, via lint-staged, from a monorepo script.
+// Resolving "src" against cwd alone meant the directory was simply not found from
+// a subdirectory, and a missing root reports nothing, so the rule went quiet
+// instead of complaining. Walk up until the configured root exists.
+function resolveRootDir(rootOption, cwd) {
+    if (path.isAbsolute(rootOption)) {
+        return rootOption;
+    }
+    let dir = cwd;
+    while (true) {
+        const candidate = path.resolve(dir, rootOption);
+        if (safeStat(candidate)?.isDirectory() === true) {
+            return candidate;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            return path.resolve(cwd, rootOption);
+        }
+        dir = parent;
+    }
+}
 const rule = {
     meta: {
         type: "problem",
         docs: {
             description: "Enforce dependency-ownership file layout",
+            url: "https://github.com/gosukiwi/file-ownership-lint#what-it-reports",
         },
         schema: [
             {
@@ -85,9 +108,6 @@ const rule = {
         const ignore = options.ignore ?? [];
         const layers = options.layers ?? [];
         const cwd = context.cwd;
-        const rootDir = path.isAbsolute(rootOption)
-            ? rootOption
-            : path.resolve(cwd, rootOption);
         return {
             Program(node) {
                 const filename = context.filename;
@@ -97,6 +117,7 @@ const rule = {
                 // Resolved lazily: a configured root that does not exist, or a linted
                 // path that is not on disk (processors, --stdin-filename, a file
                 // deleted mid-run), means "nothing to say" rather than a crash.
+                const rootDir = resolveRootDir(rootOption, cwd);
                 const realRootDir = safeRealpath(rootDir);
                 const realFilename = safeRealpath(filename);
                 if (realRootDir === undefined || realFilename === undefined) {

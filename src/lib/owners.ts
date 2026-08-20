@@ -70,7 +70,7 @@ export function collectReExports(indexFile: string, dir: string): ReExports {
   return { local: [...local], total: specifiers.size };
 }
 
-export function countLocalReExports(indexFile: string, dir: string): number {
+function countLocalReExports(indexFile: string, dir: string): number {
   return collectReExports(indexFile, dir).local.length;
 }
 
@@ -466,6 +466,9 @@ function ownerDir(owner: Owner): string {
 }
 
 function longestCommonAncestor(dirs: string[]): string {
+  if (dirs.length === 0) {
+    return "";
+  }
   const segments = dirs.map((dir) => dir.split(path.sep));
   const minLen = Math.min(...segments.map((parts) => parts.length));
   const common: string[] = [];

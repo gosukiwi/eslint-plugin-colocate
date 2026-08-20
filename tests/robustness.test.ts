@@ -85,6 +85,20 @@ describe("robustness", () => {
     }
   });
 
+  it("finds a relative root when invoked from a subdirectory", async () => {
+    const fixture = path.join(
+      path.dirname(new URL(import.meta.url).pathname),
+      "fixtures/private-sibling",
+    );
+    const results = await makeESLint(path.join(fixture, "src/pages"), {
+      root: "src",
+    }).lintFiles(["helper.ts"]);
+
+    expect(collectMessages(fixture, results)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
   it("does not report on files outside the configured root", async () => {
     const messages = await lintFixture("outside-root", { root: "src" }, [
       "src",

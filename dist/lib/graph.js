@@ -247,7 +247,7 @@ function loadCompilerOptions(rootDir) {
         configPaths: [configPath, ...(configFile?.extendedSourceFiles ?? [])],
     };
 }
-export function createResolutionSettings(rootDir) {
+function createResolutionSettings(rootDir) {
     const { options, configPaths } = loadCompilerOptions(rootDir);
     const resolutionOptions = {
         ...options,
