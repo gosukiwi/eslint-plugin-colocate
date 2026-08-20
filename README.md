@@ -10,6 +10,14 @@ npm install -D gosukiwi/file-ownership-lint
 
 Requires ESLint 9 or later (peer dependency).
 
+The package is ESM only. In a CommonJS project name your config
+`eslint.config.mjs` (or add `"type": "module"`) — `require()` of this package
+fails with Node's `ERR_PACKAGE_PATH_NOT_EXPORTED`, which does not explain itself.
+
+TypeScript consumers on ESLint 9.0–9.9 also need `@types/eslint` (or
+`skipLibCheck`), because ESLint only began shipping its own types in 9.10 and
+this plugin's declarations reference them.
+
 ## Usage
 
 ```js

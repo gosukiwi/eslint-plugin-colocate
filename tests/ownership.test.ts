@@ -282,6 +282,46 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("does not report a folder module's entry shared by two other owners", async () => {
+    const messages = await lintFixture("shared-folder-entry", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report an index-fronted folder module shared by two other owners", async () => {
+    const messages = await lintFixture("shared-folder-index-entry", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not let a barrel over loose helpers make its directory an owner", async () => {
+    const messages = await lintFixture("shared-subdir-barrel", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report a shared barrel that two owners import", async () => {
+    const messages = await lintFixture("shared-subdir-barrel-import", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("still reports a standalone owner's private helper when a barrel exists", async () => {
+    const messages = await lintFixture("standalone-owner-with-barrel", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("does not report mismatchedEntry when another re-export does not resolve", async () => {
+    const messages = await lintFixture("aggregator-unresolvable", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("does not report a shared file at the LCA inside an ancestor that owns both consumers", async () => {
     const messages = await lintFixture("shared-at-lca-under-owner");
     expect(sortMessages(messages)).toEqual([]);

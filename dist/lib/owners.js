@@ -17,7 +17,10 @@ export function collectReExports(indexFile, dir) {
     // ("export { x } from './X'; export type { T } from './X';") re-exports one
     // sibling and must not look like a two-module namespace barrel.
     const local = new Set();
-    const all = new Set();
+    // Counted by specifier rather than by resolved module, so a re-export that
+    // does not resolve (a bare package, a types-only module) still marks this
+    // index as an aggregator.
+    const specifiers = new Set();
     const visit = (node) => {
         if (ts.isExportDeclaration(node) &&
             node.moduleSpecifier !== undefined &&
@@ -26,9 +29,11 @@ export function collectReExports(indexFile, dir) {
             const resolved = resolveSpecifier(specifier, dir);
             // An index re-exporting itself ("export * from './index'") names no
             // sibling at all.
-            if (resolved !== undefined && resolved !== realIndex) {
-                all.add(resolved);
-                if (specifier.startsWith(".") && path.dirname(resolved) === realDir) {
+            if (resolved === undefined || resolved !== realIndex) {
+                specifiers.add(specifier);
+                if (resolved !== undefined &&
+                    specifier.startsWith(".") &&
+                    path.dirname(resolved) === realDir) {
                     local.add(resolved);
                 }
             }
@@ -36,7 +41,7 @@ export function collectReExports(indexFile, dir) {
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return { local: [...local], total: all.size };
+    return { local: [...local], total: specifiers.size };
 }
 export function countLocalReExports(indexFile, dir) {
     return collectReExports(indexFile, dir).local.length;
@@ -48,19 +53,25 @@ function isNamespaceBarrel(filePath) {
     }
     return countLocalReExports(filePath, path.dirname(filePath)) >= 2;
 }
+function isOwnerEntryFile(file, dir, graph) {
+    if (path.dirname(file) !== dir) {
+        return false;
+    }
+    const base = path.basename(file, path.extname(file));
+    if (base === path.basename(dir)) {
+        return true;
+    }
+    if (base !== "index") {
+        return false;
+    }
+    // An index makes its directory a module only when the directory is imported
+    // through it. A barrel over loose helpers is not a module boundary: counting
+    // it as one made a shared helper directory an "owner", which both flagged the
+    // files inside it and silenced a standalone owner's private helper.
+    return (graph.importers.get(file) ?? []).some((importer) => path.dirname(importer) !== dir);
+}
 function directoryHasMatchingEntry(dir, graph) {
-    const dirName = path.basename(dir);
-    return graph.files.some((file) => {
-        if (path.dirname(file) !== dir) {
-            return false;
-        }
-        // "index" is an entry everywhere else in the plugin. Requiring the folder's
-        // own name here made a folder fronted by index.ts not an owner, so its
-        // private helper was reported wherever it sat - including inside the folder,
-        // which is the one place the message asks for.
-        const base = path.basename(file, path.extname(file));
-        return base === dirName || base === "index";
-    });
+    return graph.files.some((file) => isOwnerEntryFile(file, dir, graph));
 }
 export function getOwner(filePath, graph, rootDir) {
     let dir = path.dirname(filePath);
@@ -213,10 +224,6 @@ export function getColocationConsumers(filePath, graph, shells) {
 }
 function isInsideDir(filePath, dir) {
     return filePath.startsWith(dir + path.sep);
-}
-function isMatchingNameEntry(filePath, ownerDir) {
-    return (path.dirname(filePath) === ownerDir &&
-        path.basename(filePath, path.extname(filePath)) === path.basename(ownerDir));
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
@@ -392,10 +399,10 @@ export function getSharedColocationIssue(filePath, ctx) {
         if (!isInsideDir(dir, lca)) {
             return false;
         }
-        // An owner folder's own entry belongs in its folder - but only when that
-        // folder is one of the consumers. Otherwise the folder itself is what sits
-        // in the wrong place, and the report still stands.
-        return !(isMatchingNameEntry(filePath, dir) && consumerFolderDirs.includes(dir));
+        // A folder's own entry is never misplaced within its own folder - there is
+        // nowhere else for it to go. If the folder itself sits in the wrong place,
+        // the folders above it say so, and they are still in this list.
+        return !isOwnerEntryFile(filePath, dir, ctx.graph);
     });
     if (containing.length > 0) {
         return "sharedInsideOwner";
