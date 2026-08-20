@@ -96,6 +96,41 @@ describe("walking the tree", () => {
     expect(relFiles(dir, "src")).toEqual(["src/W/inner.ts"]);
   });
 
+  it("keeps excluding a build directory reached through a symlink", () => {
+    const dir = project({
+      "src/main.ts": "export const m = 1;\n",
+      "src/dist/Deep/bundle.ts": "export const b = 1;\n",
+    });
+    link(dir, "dist", "src/link");
+
+    expect(relFiles(dir, "src")).toEqual(["src/main.ts"]);
+  });
+
+  it("keeps excluding an ignored directory reached below its own name", () => {
+    const dir = project({
+      "src/main.ts": "export const m = 1;\n",
+      "src/gen/Other/x.ts": "export const x = 1;\n",
+    });
+    link(dir, "gen/Other", "src/link");
+
+    expect(relFiles(dir, "src", ["gen"])).toEqual(["src/main.ts"]);
+  });
+
+  it("does not blow up on nested sibling symlinks", () => {
+    const files: Record<string, string> = { "src/leaf/real.ts": "export const r = 1;\n" };
+    for (let i = 0; i < 12; i += 1) files[`src/d${i}/keep.ts`] = "export const k = 1;\n";
+    const dir = project(files);
+    for (let i = 0; i < 11; i += 1) {
+      link(dir, `../d${i + 1}`, `src/d${i}/p`);
+      link(dir, `../d${i + 1}`, `src/d${i}/q`);
+    }
+
+    const started = Date.now();
+    const graph = buildGraph(path.join(dir, "src"), []);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(graph.files.length).toBe(13);
+  });
+
   it("does not record a file as importing itself through a wrong-case specifier", () => {
     const dir = project({
       "src/pages/helper.ts": 'import "./Helper";\nexport const h = 1;\n',
@@ -128,6 +163,32 @@ describe("specifier extraction", () => {
     const graph = buildGraph(path.join(dir, "src"), []);
 
     expect(graph.importers.get(path.join(dir, "src/help.ts"))).toBeUndefined();
+  });
+
+  it("follows require() when an unrelated block binds the name later", () => {
+    const dir = project({
+      "src/A/A.ts":
+        'const h = require("../help");\nif (h) {\n  const require = 1;\n  console.log(require);\n}\nexport const a = h;\n',
+      "src/help.ts": "export const h = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/help.ts"))).toEqual([
+      path.join(dir, "src/A/A.ts"),
+    ]);
+  });
+
+  it("follows require() created by createRequire", () => {
+    const dir = project({
+      "src/A/A.ts":
+        'import { createRequire } from "node:module";\nconst require = createRequire(import.meta.url);\nexport const a = require("../help");\n',
+      "src/help.ts": "export const h = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/help.ts"))).toEqual([
+      path.join(dir, "src/A/A.ts"),
+    ]);
   });
 
   it("ignores a require call bound to a parameter", () => {
@@ -168,6 +229,22 @@ describe("resolution fallbacks", () => {
     expect(graph.importers.get(path.join(dir, "src/Foo/index.cts"))).toEqual([
       path.join(dir, "src/app.ts"),
     ]);
+  });
+
+  it("does not fall through to a shorter path alias the compiler would not use", () => {
+    const dir = project({
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@app/*": ["./src/*"], "@app/legacy/*": ["./legacy/*"] },
+        },
+      }),
+      "src/main.ts": 'import "@app/legacy/x";\n',
+      "src/legacy/x.ts": "export const x = 1;\n",
+    });
+    const graph = buildGraph(path.join(dir, "src"), []);
+
+    expect(graph.importers.get(path.join(dir, "src/legacy/x.ts"))).toBeUndefined();
   });
 
   it("still resolves relative imports onto those extensions", () => {

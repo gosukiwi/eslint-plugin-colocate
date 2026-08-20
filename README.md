@@ -90,6 +90,12 @@ walk. Default `"."` (the working directory), so a project keeping its sources at
 the repository root works unconfigured. Set it to `"src"` for a tighter, faster
 graph.
 
+A relative `root` is resolved against the working directory, and if it is not
+there the search continues upward so that running `eslint` from a subdirectory
+still works. The search stops at the enclosing project (the nearest `package.json`
+or `.git`), so a checkout that happens to live under a directory called `src`
+cannot have its root resolve outside itself.
+
 Files outside `root` are never reported on.
 
 ### `layers`
@@ -127,6 +133,10 @@ also do not count toward the single-file-directory check.
 A glob naming a directory excludes everything under it, so `["gen"]` and
 `["gen/**"]` both work. Symlinks are checked under their own path and under the
 path they resolve to, so ignoring a directory holds however it is reached.
+
+Negation is not supported: each glob is matched independently, so `["!gen"]`
+matches everything except `gen` and silently switches the rule off. List what to
+exclude, not what to keep.
 
 Unknown option names are rejected rather than silently ignored.
 

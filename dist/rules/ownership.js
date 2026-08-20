@@ -11,22 +11,32 @@ function countSourceFilesRecursive(dir, rootDir, ignore) {
     let sourceCount = 0;
     for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(rootDir, fullPath);
         // Files excluded from the graph must not count here either, or an ignored
         // generated file keeps a wrapper directory looking populated.
-        if (matchesIgnore(path.relative(rootDir, fullPath), ignore)) {
+        if (matchesIgnore(relPath, ignore)) {
             continue;
         }
-        if (entry.isDirectory()) {
+        // Symlinks read as neither file nor directory, so a linked subdirectory of
+        // sources used to leave the parent looking like a single-file wrapper.
+        const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
+        const isDirectory = entry.isSymbolicLink()
+            ? (stat?.isDirectory() ?? false)
+            : entry.isDirectory();
+        if (isDirectory) {
             if (SKIP_DIRS.has(entry.name)) {
                 continue;
             }
             sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
             continue;
         }
-        if (!entry.isFile()) {
+        const isFile = entry.isSymbolicLink()
+            ? (stat?.isFile() ?? false)
+            : entry.isFile();
+        if (!isFile) {
             continue;
         }
-        if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
+        if (isSourceFile(fullPath) && !isTestFile(relPath)) {
             sourceCount += 1;
         }
     }
@@ -59,6 +69,10 @@ function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
 // Resolving "src" against cwd alone meant the directory was simply not found from
 // a subdirectory, and a missing root reports nothing, so the rule went quiet
 // instead of complaining. Walk up until the configured root exists.
+function isProjectBoundary(dir) {
+    return (safeStat(path.join(dir, "package.json")) !== undefined ||
+        safeStat(path.join(dir, ".git")) !== undefined);
+}
 function resolveRootDir(rootOption, cwd) {
     if (path.isAbsolute(rootOption)) {
         return rootOption;
@@ -69,12 +83,20 @@ function resolveRootDir(rootOption, cwd) {
         if (safeStat(candidate)?.isDirectory() === true) {
             return candidate;
         }
+        // Stop at the project it belongs to. Unbounded, the walk would happily
+        // resolve root: "src" to a checkout's parent directory that happens to be
+        // called src, taking unrelated projects into the graph and making the
+        // findings depend on where the repository sits on disk.
+        if (isProjectBoundary(dir)) {
+            break;
+        }
         const parent = path.dirname(dir);
         if (parent === dir) {
-            return path.resolve(cwd, rootOption);
+            break;
         }
         dir = parent;
     }
+    return path.resolve(cwd, rootOption);
 }
 const rule = {
     meta: {
@@ -111,7 +133,7 @@ const rule = {
         return {
             Program(node) {
                 const filename = context.filename;
-                if (!isSourceFile(filename) || isTestFile(filename)) {
+                if (!isSourceFile(filename)) {
                     return;
                 }
                 // Resolved lazily: a configured root that does not exist, or a linted
@@ -124,7 +146,9 @@ const rule = {
                     return;
                 }
                 const relPath = path.relative(realRootDir, realFilename);
-                if (isOutsideRoot(relPath) || isExcludedPath(relPath, ignore)) {
+                if (isOutsideRoot(relPath) ||
+                    isTestFile(relPath) ||
+                    isExcludedPath(relPath, ignore)) {
                     return;
                 }
                 const realDir = path.dirname(realFilename);

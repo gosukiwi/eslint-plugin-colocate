@@ -19,10 +19,12 @@ export const SOURCE_EXTS = [
   ".cjs",
 ] as const;
 
-export function isTestFile(p: string): boolean {
+// Takes a path relative to the root: given an absolute one, a `__tests__`
+// directory anywhere ABOVE the project would have disabled the rule entirely.
+export function isTestFile(relPath: string): boolean {
   return (
-    p.split(path.sep).includes("__tests__") ||
-    /\.(test|spec)\./.test(path.basename(p))
+    relPath.split(path.sep).includes("__tests__") ||
+    /\.(test|spec)\./.test(path.basename(relPath))
   );
 }
 
@@ -96,6 +98,7 @@ function walkDir(
   ignoreGlobs: string[],
   files: Set<string>,
   ancestorRealDirs: Set<string>,
+  linkedRealDirs: Set<string>,
   behindLink: boolean,
 ): void {
   const realDir = safeRealpath(dir);
@@ -149,24 +152,35 @@ function walkDir(
       if (!isWithinRoot(realPath, rootDir)) {
         continue;
       }
-      if (shouldSkip(path.relative(rootDir, realPath), ignoreGlobs)) {
+      if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
         continue;
       }
     }
 
     if (isDirectory) {
+      // Sibling links to one real directory are both legitimate, but nesting
+      // them makes the walk exponential (2^depth), so each real directory is
+      // entered through a link at most once. Directories reached without a link
+      // are always walked.
+      if (isLink) {
+        if (linkedRealDirs.has(realPath)) {
+          continue;
+        }
+        linkedRealDirs.add(realPath);
+      }
       walkDir(
         fullPath,
         rootDir,
         ignoreGlobs,
         files,
         nested,
+        linkedRealDirs,
         behindLink || isLink,
       );
       continue;
     }
 
-    if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
+    if (isSourceFile(fullPath) && !isTestFile(relPath)) {
       // A Set because following symlinks can reach the same real file twice.
       files.add(realPath);
     }
@@ -210,45 +224,80 @@ function stringLiteralText(node: ts.Node | undefined): string | undefined {
   return undefined;
 }
 
-function declaresRequire(sourceFile: ts.SourceFile): boolean {
-  let declared = false;
+function bindsName(name: ts.BindingName, target: string): boolean {
+  if (ts.isIdentifier(name)) {
+    return name.text === target;
+  }
+  return name.elements.some((element) =>
+    ts.isBindingElement(element) ? bindsName(element.name, target) : false,
+  );
+}
 
-  const visit = (node: ts.Node): void => {
-    if (declared) {
-      return;
+function isCreateRequireCall(node: ts.Expression | undefined): boolean {
+  if (node === undefined || !ts.isCallExpression(node)) {
+    return false;
+  }
+  const callee = node.expression;
+  if (ts.isIdentifier(callee)) {
+    return callee.text === "createRequire";
+  }
+  return (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.name.text === "createRequire"
+  );
+}
+
+/** Whether this scope itself binds `require`, shadowing the CJS one. */
+function scopeBindsRequire(node: ts.Node): boolean {
+  if (ts.isFunctionLike(node)) {
+    if (node.parameters.some((p) => bindsName(p.name, "require"))) {
+      return true;
     }
-    const named = node as { name?: ts.Node };
+  }
+
+  const statements = ts.isSourceFile(node)
+    ? node.statements
+    : ts.isBlock(node) || ts.isModuleBlock(node)
+      ? node.statements
+      : undefined;
+  if (statements === undefined) {
+    return false;
+  }
+
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!bindsName(declaration.name, "require")) {
+          continue;
+        }
+        // `const require = createRequire(import.meta.url)` IS the real require,
+        // so its calls are genuine edges.
+        if (isCreateRequireCall(declaration.initializer)) {
+          continue;
+        }
+        return true;
+      }
+    }
     if (
-      (ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isVariableDeclaration(node) ||
-        ts.isParameter(node) ||
-        ts.isBindingElement(node) ||
-        ts.isImportSpecifier(node) ||
-        ts.isImportClause(node) ||
-        ts.isClassDeclaration(node)) &&
-      named.name !== undefined &&
-      ts.isIdentifier(named.name) &&
-      named.name.text === "require"
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === "require"
     ) {
-      declared = true;
-      return;
+      return true;
     }
-    ts.forEachChild(node, visit);
-  };
+  }
 
-  visit(sourceFile);
-  return declared;
+  return false;
 }
 
 function extractSpecifiers(content: string, fileName: string): string[] {
   const sourceFile = parseSourceFile(fileName, content);
   const specifiers: string[] = [];
-  // `require` is only the CJS one when the file has not bound that name itself;
-  // a local function or parameter called require was producing phantom edges.
-  const requireIsCjs = !declaresRequire(sourceFile);
 
-  const visit = (node: ts.Node): void => {
+  // Scope-aware: a `require` bound in an unrelated nested scope used to disable
+  // every require() edge in the file, while a parameter named require must still
+  // shadow it within that function.
+  const visit = (node: ts.Node, shadowed: boolean): void => {
+    const requireIsCjs = !(shadowed || scopeBindsRequire(node));
     if (ts.isImportDeclaration(node)) {
       const text = stringLiteralText(node.moduleSpecifier);
       if (text !== undefined) {
@@ -279,10 +328,10 @@ function extractSpecifiers(content: string, fileName: string): string[] {
         specifiers.push(text);
       }
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => visit(child, !requireIsCjs));
   };
 
-  visit(sourceFile);
+  visit(sourceFile, false);
   return specifiers;
 }
 
@@ -398,6 +447,42 @@ function probeResolvedPath(base: string): string | undefined {
 // The compiler will not try .cts/.cjs for an extensionless specifier, and for a
 // non-relative one there is no path left to probe once it gives up - so the
 // mapping is expanded here, longest prefix first, exactly as tsc orders it.
+// tsc picks exactly one pattern - an exact key first, otherwise the longest
+// matching prefix - and if that pattern's targets do not exist the specifier is
+// simply unresolved. Trying every matching pattern invented edges the compiler
+// refuses.
+function bestPathPattern(
+  specifier: string,
+  paths: Record<string, string[]>,
+): string | undefined {
+  if (Object.prototype.hasOwnProperty.call(paths, specifier)) {
+    return specifier;
+  }
+
+  let best: string | undefined;
+  let bestPrefixLength = -1;
+  for (const pattern of Object.keys(paths)) {
+    const star = pattern.indexOf("*");
+    if (star === -1) {
+      continue;
+    }
+    const prefix = pattern.slice(0, star);
+    const suffix = pattern.slice(star + 1);
+    if (
+      !specifier.startsWith(prefix) ||
+      !specifier.endsWith(suffix) ||
+      specifier.length < prefix.length + suffix.length
+    ) {
+      continue;
+    }
+    if (prefix.length > bestPrefixLength) {
+      bestPrefixLength = prefix.length;
+      best = pattern;
+    }
+  }
+  return best;
+}
+
 function aliasCandidates(
   specifier: string,
   options: ts.CompilerOptions,
@@ -415,27 +500,25 @@ function aliasCandidates(
     return [];
   }
 
-  const patterns = Object.keys(paths)
-    .filter((pattern) => {
-      const star = pattern.indexOf("*");
-      return star === -1
-        ? pattern === specifier
-        : specifier.startsWith(pattern.slice(0, star));
-    })
-    .sort((a, b) => b.length - a.length);
-
-  const candidates: string[] = [];
-  for (const pattern of patterns) {
-    const star = pattern.indexOf("*");
-    const rest = star === -1 ? "" : specifier.slice(star);
-    for (const target of paths[pattern] ?? []) {
-      const targetStar = target.indexOf("*");
-      const mapped =
-        targetStar === -1 ? target : target.slice(0, targetStar) + rest;
-      candidates.push(path.resolve(base, mapped));
-    }
+  const pattern = bestPathPattern(specifier, paths);
+  if (pattern === undefined) {
+    return [];
   }
-  return candidates;
+
+  const star = pattern.indexOf("*");
+  const matched =
+    star === -1
+      ? ""
+      : specifier.slice(star, specifier.length - (pattern.length - star - 1));
+
+  return (paths[pattern] ?? []).map((target) => {
+    const targetStar = target.indexOf("*");
+    const mapped =
+      targetStar === -1
+        ? target
+        : target.slice(0, targetStar) + matched + target.slice(targetStar + 1);
+    return path.resolve(base, mapped);
+  });
 }
 
 export function resolveSpecifier(
@@ -486,7 +569,15 @@ function buildGraphWithConfigs(
     return { graph: { importers: new Map(), files: [] }, configPaths: [] };
   }
   const collected = new Set<string>();
-  walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, new Set(), false);
+  walkDir(
+    resolvedRoot,
+    resolvedRoot,
+    ignoreGlobs,
+    collected,
+    new Set(),
+    new Set(),
+    false,
+  );
   const files = [...collected].sort();
 
   const fileSet = new Set(files);
@@ -649,7 +740,7 @@ function isProductionGraphFile(
   if (isOutsideRoot(relPath)) {
     return false;
   }
-  if (!isSourceFile(currentFile) || isTestFile(currentFile)) {
+  if (!isSourceFile(currentFile) || isTestFile(relPath)) {
     return false;
   }
   return !isExcludedPath(relPath, ignoreGlobs);

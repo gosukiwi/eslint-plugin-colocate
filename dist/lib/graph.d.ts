@@ -1,6 +1,6 @@
 import ts from "typescript";
 export declare const SOURCE_EXTS: readonly [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
-export declare function isTestFile(p: string): boolean;
+export declare function isTestFile(relPath: string): boolean;
 export interface Graph {
     importers: Map<string, string[]>;
     files: string[];

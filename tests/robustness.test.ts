@@ -99,6 +99,64 @@ describe("robustness", () => {
     ]);
   });
 
+  it("does not resolve a relative root past a project boundary", async () => {
+    const outer = tempProject({
+      "src/unrelated/lib.ts": "export const u = 1;\n",
+      "src/repo/package.json": "{}\n",
+      "src/repo/app/main.ts": 'import "./App";\n',
+      "src/repo/app/App.ts": 'import "./MyPage/MyPage";\n',
+      "src/repo/app/helper.ts": "export const h = 1;\n",
+      "src/repo/app/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+    });
+    const cwd = path.join(outer, "src/repo");
+    try {
+      const results = await makeESLint(cwd, { root: "src" }).lintFiles(["app"]);
+      expect(collectMessages(cwd, results)).toEqual([]);
+    } finally {
+      fs.rmSync(outer, { recursive: true, force: true });
+    }
+  });
+
+  it("is not disabled by a __tests__ directory above the root", async () => {
+    const outer = tempProject({
+      "__tests__/repo/src/main.ts": 'import "./App";\n',
+      "__tests__/repo/src/App.ts": 'import "./pages/MyPage/MyPage";\n',
+      "__tests__/repo/src/pages/helper.ts": "export const h = 1;\n",
+      "__tests__/repo/src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
+      "__tests__/repo/src/pages/MyPage/MyPage.module.css": ".p {}\n",
+    });
+    const cwd = path.join(outer, "__tests__/repo");
+    try {
+      const results = await makeESLint(cwd, { root: "src" }).lintFiles(["src"]);
+      expect(collectMessages(cwd, results)).toEqual([
+        { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+      ]);
+    } finally {
+      fs.rmSync(outer, { recursive: true, force: true });
+    }
+  });
+
+  it("counts sources behind a symlinked subdirectory", async () => {
+    const dir = tempProject({
+      "src/app.ts": 'import "./Foo/Foo";\n',
+      "src/Foo/Foo.ts": "export const f = 1;\n",
+      "src/realsub/a.ts": "export const a = 1;\n",
+      "src/realsub/b.ts": "export const b = 1;\n",
+    });
+    fs.symlinkSync("../realsub", path.join(dir, "src/Foo/sub"));
+    try {
+      const results = await makeESLint(dir, { root: "src" }).lintFiles(["src"]);
+      expect(
+        collectMessages(dir, results).filter(
+          (m) => m.messageId === "singletonFolder",
+        ),
+      ).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not report on files outside the configured root", async () => {
     const messages = await lintFixture("outside-root", { root: "src" }, [
       "src",
