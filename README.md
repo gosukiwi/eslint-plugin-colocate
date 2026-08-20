@@ -190,6 +190,16 @@ exist, a linted path that is not on disk (editor buffers, processors,
 `--stdin-filename`, a file deleted mid-run), or an unreadable file or directory
 produces no findings instead of aborting your lint run.
 
+## Development
+
+`npm test` runs the suite; `npm run typecheck` checks types.
+
+`npm run check:placement` is a slower opt-in sweep, not part of `npm test`. It
+generates random layouts, places a file at every plausible location, and fails if
+any configuration has no location the rule accepts — every report has to be
+fixable. Run it after touching the ownership model. `CONFIGS=40 npm run
+check:placement` for a quick pass.
+
 ## Known limitations
 
 **Code reachable only through an import cycle is not checked.** A cycle nothing

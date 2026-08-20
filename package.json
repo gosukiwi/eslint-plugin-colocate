@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:placement": "vite-node scripts/check-placement.ts"
   },
   "peerDependencies": {
     "eslint": ">=9"
