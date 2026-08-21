@@ -20,6 +20,12 @@ const aliasPrivateFixtureRoot = path.join(
   "fixtures/alias-private",
 );
 
+function fixture(name: string): string {
+  return fs.realpathSync(
+    path.join(fileURLToPath(new URL(".", import.meta.url)), "fixtures", name),
+  );
+}
+
 describe("isTestFile", () => {
   it("returns true when any path segment is __tests__", () => {
     expect(
@@ -53,7 +59,7 @@ describe("getGraph", () => {
     expect(cached).toBe(graph);
   });
 
-  it("rebuilds the cached graph when the current file mtime changes", () => {
+  it("rebuilds the cached graph when any tracked file changes, not just the current one", () => {
     const rootDir = fs.realpathSync(fixtureRoot);
     const aPath = path.join(rootDir, "src/a.ts");
     const bPath = path.join(rootDir, "src/b.ts");
@@ -64,12 +70,12 @@ describe("getGraph", () => {
     const later = new Date(Date.now() + 2000);
     fs.utimesSync(bPath, later, later);
 
-    const unchangedCurrent = getGraph(rootDir, [], aPath);
-    expect(unchangedCurrent).toBe(first);
-
-    const second = getGraph(rootDir, [], bPath);
+    const second = getGraph(rootDir, [], aPath);
     expect(second).not.toBe(first);
     expect(second.importers.get(bPath)).toEqual([aPath]);
+
+    const cached = getGraph(rootDir, [], aPath);
+    expect(cached).toBe(second);
   });
 
   it("reuses the cached graph when currentFile is outside rootDir", () => {
@@ -120,6 +126,31 @@ describe("getGraph", () => {
 
     const second = getGraph(rootDir, [], mainPath);
     expect(second).not.toBe(first);
+  });
+
+  it("resolves the longest matching path alias prefix", () => {
+    const rootDir = fixture("alias-longest-prefix");
+    const graph = getGraph(rootDir, [], path.join(rootDir, "src/main.ts"));
+
+    expect(graph.importers.get(path.join(rootDir, "src/core/Thing.ts"))).toEqual([
+      path.join(rootDir, "src/main.ts"),
+    ]);
+    expect(
+      graph.importers.get(path.join(rootDir, "src/legacy/core/Thing.ts")),
+    ).toBeUndefined();
+  });
+
+  it("resolves exact path aliases and falls back to later path targets", () => {
+    const rootDir = fixture("alias-shapes");
+    const mainPath = path.join(rootDir, "src/main.ts");
+    const graph = getGraph(rootDir, [], mainPath);
+
+    expect(graph.importers.get(path.join(rootDir, "src/lib/thing.ts"))).toEqual([
+      mainPath,
+    ]);
+    expect(graph.importers.get(path.join(rootDir, "src/other.ts"))).toEqual([
+      mainPath,
+    ]);
   });
 
   it("resolves relative imports with .js extension to TypeScript sources", () => {

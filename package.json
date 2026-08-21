@@ -17,20 +17,21 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:placement": "vite-node scripts/check-placement.ts"
   },
   "peerDependencies": {
     "eslint": ">=9"
   },
   "dependencies": {
     "minimatch": "^10",
-    "typescript": "^5"
+    "typescript": "^5 || ^6"
   },
   "devDependencies": {
     "@types/node": "^22.15.29",
     "@typescript-eslint/parser": "^8",
     "eslint": "^9",
-    "typescript": "^5",
+    "typescript": "^5 || ^6",
     "vitest": "^3"
   }
 }

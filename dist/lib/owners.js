@@ -1,31 +1,50 @@
-import fs from "node:fs";
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
 const shellsByGraph = new WeakMap();
-const layerDirsCache = new Map();
-export function countLocalReExports(indexFile, dir) {
-    const content = fs.readFileSync(indexFile, "utf8");
-    const realDir = fs.realpathSync(dir);
+const layerDirsByGraph = new WeakMap();
+export function collectReExports(indexFile, dir) {
+    const content = safeReadFile(indexFile);
+    const realDir = safeRealpath(dir);
+    const realIndex = safeRealpath(indexFile);
+    if (content === undefined || realDir === undefined) {
+        return { local: [], total: 0 };
+    }
     const sourceFile = parseSourceFile(indexFile, content);
-    let count = 0;
+    // Keyed by module, not by declaration: the idiomatic value + type split
+    // ("export { x } from './X'; export type { T } from './X';") re-exports one
+    // sibling and must not look like a two-module namespace barrel.
+    const local = new Set();
+    // Counted by specifier rather than by resolved module, so a re-export that
+    // does not resolve (a bare package, a types-only module) still marks this
+    // index as an aggregator.
+    const specifiers = new Set();
     const visit = (node) => {
         if (ts.isExportDeclaration(node) &&
             node.moduleSpecifier !== undefined &&
             ts.isStringLiteral(node.moduleSpecifier)) {
             const specifier = node.moduleSpecifier.text;
-            if (specifier.startsWith(".")) {
-                const resolved = resolveSpecifier(specifier, dir);
-                if (resolved !== undefined && path.dirname(resolved) === realDir) {
-                    count += 1;
+            const resolved = resolveSpecifier(specifier, dir);
+            // An index re-exporting itself ("export * from './index'") names no
+            // sibling at all.
+            if (resolved === undefined || resolved !== realIndex) {
+                specifiers.add(specifier);
+                if (resolved !== undefined &&
+                    specifier.startsWith(".") &&
+                    path.dirname(resolved) === realDir) {
+                    local.add(resolved);
                 }
             }
         }
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return count;
+    return { local: [...local], total: specifiers.size };
+}
+function countLocalReExports(indexFile, dir) {
+    return collectReExports(indexFile, dir).local.length;
 }
 function isNamespaceBarrel(filePath) {
     const basename = path.basename(filePath, path.extname(filePath));
@@ -34,16 +53,29 @@ function isNamespaceBarrel(filePath) {
     }
     return countLocalReExports(filePath, path.dirname(filePath)) >= 2;
 }
+function isOwnerEntryFile(file, dir, graph) {
+    if (path.dirname(file) !== dir) {
+        return false;
+    }
+    const base = path.basename(file, path.extname(file));
+    if (base === path.basename(dir)) {
+        return true;
+    }
+    if (base !== "index") {
+        return false;
+    }
+    // An index makes its directory a module only when the directory is imported
+    // through it. A barrel over loose helpers is not a module boundary: counting
+    // it as one made a shared helper directory an "owner", which both flagged the
+    // files inside it and silenced a standalone owner's private helper.
+    return (graph.importers.get(file) ?? []).some((importer) => path.dirname(importer) !== dir);
+}
 function directoryHasMatchingEntry(dir, graph) {
-    const dirName = path.basename(dir);
-    return graph.files.some((file) => {
-        return (path.dirname(file) === dir &&
-            path.basename(file, path.extname(file)) === dirName);
-    });
+    return graph.files.some((file) => isOwnerEntryFile(file, dir, graph));
 }
 export function getOwner(filePath, graph, rootDir) {
     let dir = path.dirname(filePath);
-    const realRoot = fs.realpathSync(rootDir);
+    const realRoot = safeRealpath(rootDir) ?? rootDir;
     while (true) {
         if (directoryHasMatchingEntry(dir, graph)) {
             return { kind: "folder", path: dir };
@@ -59,17 +91,114 @@ export function getOwner(filePath, graph, rootDir) {
     }
     return { kind: "standalone", path: filePath };
 }
+function buildImports(graph) {
+    const imports = new Map();
+    for (const [target, importers] of graph.importers) {
+        for (const importer of importers) {
+            const existing = imports.get(importer);
+            if (existing === undefined) {
+                imports.set(importer, [target]);
+            }
+            else {
+                existing.push(target);
+            }
+        }
+    }
+    return imports;
+}
+// Tarjan, iterative so a deep import chain cannot blow the stack.
+function stronglyConnectedIds(nodes, edgesOf) {
+    const index = new Map();
+    const low = new Map();
+    const onStack = new Set();
+    const stack = [];
+    const ids = new Map();
+    let counter = 0;
+    let nextId = 0;
+    const push = (node, frames) => {
+        index.set(node, counter);
+        low.set(node, counter);
+        counter += 1;
+        stack.push(node);
+        onStack.add(node);
+        frames.push({ node, edges: edgesOf(node), next: 0 });
+    };
+    for (const start of nodes) {
+        if (index.has(start)) {
+            continue;
+        }
+        const frames = [];
+        push(start, frames);
+        while (frames.length > 0) {
+            const frame = frames[frames.length - 1];
+            if (frame.next < frame.edges.length) {
+                const child = frame.edges[frame.next];
+                frame.next += 1;
+                if (!index.has(child)) {
+                    push(child, frames);
+                }
+                else if (onStack.has(child)) {
+                    low.set(frame.node, Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0));
+                }
+                continue;
+            }
+            frames.pop();
+            const parent = frames[frames.length - 1];
+            if (parent !== undefined) {
+                low.set(parent.node, Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0));
+            }
+            if (low.get(frame.node) === index.get(frame.node)) {
+                const id = nextId;
+                nextId += 1;
+                while (true) {
+                    const member = stack.pop();
+                    if (member === undefined) {
+                        break;
+                    }
+                    onStack.delete(member);
+                    ids.set(member, id);
+                    if (member === frame.node) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return ids;
+}
 function getRoots(graph) {
+    const imports = buildImports(graph);
+    const componentIds = stronglyConnectedIds(graph.files, (file) => imports.get(file) ?? []);
+    // Entry points are whole components, not individual files. Inside a cycle
+    // nothing is importer-free, so asking for zero importers leaves a cyclic
+    // entry with no roots at all and strips the shell exemption from the whole
+    // project; asking each file individually would promote the inner half of a
+    // cycle that something outside imports.
+    const importedFromOutside = new Set();
+    for (const file of graph.files) {
+        const component = componentIds.get(file);
+        for (const importer of graph.importers.get(file) ?? []) {
+            if (componentIds.get(importer) !== component && component !== undefined) {
+                importedFromOutside.add(component);
+            }
+        }
+    }
     const roots = new Set();
     for (const file of graph.files) {
-        const importers = graph.importers.get(file) ?? [];
-        if (importers.length === 0) {
+        const component = componentIds.get(file);
+        if (component === undefined || !importedFromOutside.has(component)) {
             roots.add(file);
         }
     }
     return roots;
 }
-export function getShells(graph) {
+// Entry points plus what they import directly. Deliberately not configurable and
+// deliberately not transitive: a longer bootstrap chain is expressed by declaring
+// the directories it reaches as layers, which states something true about those
+// modules. Exempting the shell's imports outright would also hide a shell that
+// reaches past a feature's entry into its internals - a real finding.
+export function getShells(ctx) {
+    const { graph } = ctx;
     const cached = shellsByGraph.get(graph);
     if (cached !== undefined) {
         return cached;
@@ -96,33 +225,56 @@ export function getColocationConsumers(filePath, graph, shells) {
 function isInsideDir(filePath, dir) {
     return filePath.startsWith(dir + path.sep);
 }
-function isMatchingNameEntry(filePath, ownerDir) {
-    return (path.dirname(filePath) === ownerDir &&
-        path.basename(filePath, path.extname(filePath)) === path.basename(ownerDir));
-}
-function collectLayerDirs(dir, cwd, layerGlobs, out) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
+    for (const entry of safeReaddir(dir)) {
         if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) {
             continue;
         }
         const fullPath = path.join(dir, entry.name);
-        const relPath = path.relative(cwd, fullPath).split(path.sep).join("/");
-        if (layerGlobs.some((glob) => minimatch(relPath, glob))) {
-            out.push(fs.realpathSync(fullPath));
+        // Matched against both spellings: `ignore` globs are relative to `root`
+        // while these were relative to the working directory, so with root: "src"
+        // the natural glob silently matched nothing.
+        const candidates = [
+            path.relative(cwd, fullPath).split(path.sep).join("/"),
+            path.relative(rootDir, fullPath).split(path.sep).join("/"),
+        ];
+        if (layerGlobs.some((glob) => candidates.some((candidate) => minimatch(candidate, glob)))) {
+            const realPath = safeRealpath(fullPath);
+            if (realPath !== undefined) {
+                out.push(realPath);
+            }
         }
-        collectLayerDirs(fullPath, cwd, layerGlobs, out);
+        collectLayerDirs(fullPath, cwd, rootDir, layerGlobs, out);
     }
 }
-export function resolveLayerDirectories(cwd, layerGlobs) {
-    if (layerGlobs.length === 0)
+export function collectLayerDirectories(cwd, layerGlobs, rootDir = cwd) {
+    if (layerGlobs.length === 0) {
         return [];
-    const key = cwd + "\0" + layerGlobs.join("\0");
-    const cached = layerDirsCache.get(key);
-    if (cached !== undefined)
-        return cached;
+    }
     const dirs = [];
-    collectLayerDirs(cwd, cwd, layerGlobs, dirs);
-    layerDirsCache.set(key, dirs);
+    collectLayerDirs(cwd, cwd, rootDir, layerGlobs, dirs);
+    return dirs;
+}
+// Memoised against the graph rather than for the life of the process: a layer
+// directory created mid-session used to stay invisible until ESLint restarted,
+// which meant a permanent false privateOutsideOwner on every module inside it.
+// A new directory rebuilds the graph, which drops this entry with it.
+export function resolveLayerDirectories(graph, cwd, layerGlobs, rootDir = cwd) {
+    if (layerGlobs.length === 0) {
+        return [];
+    }
+    const key = cwd + "\0" + rootDir + "\0" + layerGlobs.join("\0");
+    let perGraph = layerDirsByGraph.get(graph);
+    if (perGraph === undefined) {
+        perGraph = new Map();
+        layerDirsByGraph.set(graph, perGraph);
+    }
+    const cached = perGraph.get(key);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const dirs = collectLayerDirectories(cwd, layerGlobs, rootDir);
+    perGraph.set(key, dirs);
     return dirs;
 }
 export function isLayerPublicModule(filePath, layerDirs) {
@@ -139,33 +291,35 @@ export function isLayerPublicModule(filePath, layerDirs) {
     }
     const folderName = path.basename(parent);
     const fileBase = path.basename(filePath, path.extname(filePath));
-    return fileBase === folderName;
+    // "index" is an entry everywhere else in the plugin, so a layer folder using
+    // one was told to move somewhere it cannot go.
+    return fileBase === folderName || fileBase === "index";
 }
-export function shouldSkipColocation(filePath, graph, layerDirs) {
-    const shells = getShells(graph);
+export function shouldSkipColocation(filePath, ctx) {
+    const shells = getShells(ctx);
     if (shells.has(filePath)) {
         return true;
     }
-    if (isLayerPublicModule(filePath, layerDirs)) {
+    if (isLayerPublicModule(filePath, ctx.layerDirs)) {
         return true;
     }
-    return getColocationConsumers(filePath, graph, shells).length === 0;
+    return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
 }
-function collectConsumerOwners(filePath, graph, rootDir) {
-    const shells = getShells(graph);
-    const consumers = getColocationConsumers(filePath, graph, shells);
+function collectConsumerOwners(filePath, ctx) {
+    const shells = getShells(ctx);
+    const consumers = getColocationConsumers(filePath, ctx.graph, shells);
     const owners = new Map();
     for (const consumer of consumers) {
-        const owner = getOwner(consumer, graph, rootDir);
+        const owner = getOwner(consumer, ctx.graph, ctx.rootDir);
         owners.set(owner.path, owner);
     }
     return owners;
 }
-export function isPrivateOutsideOwner(filePath, graph, rootDir, layerDirs) {
-    if (shouldSkipColocation(filePath, graph, layerDirs)) {
+export function isPrivateOutsideOwner(filePath, ctx) {
+    if (shouldSkipColocation(filePath, ctx)) {
         return false;
     }
-    const owners = collectConsumerOwners(filePath, graph, rootDir);
+    const owners = collectConsumerOwners(filePath, ctx);
     if (owners.size !== 1) {
         return false;
     }
@@ -174,9 +328,6 @@ export function isPrivateOutsideOwner(filePath, graph, rootDir, layerDirs) {
         return false;
     }
     if (owner.kind === "folder") {
-        if (isMatchingNameEntry(filePath, owner.path)) {
-            return false;
-        }
         return !isInsideDir(filePath, owner.path);
     }
     return filePath !== owner.path;
@@ -185,6 +336,9 @@ function ownerDir(owner) {
     return owner.kind === "folder" ? owner.path : path.dirname(owner.path);
 }
 function longestCommonAncestor(dirs) {
+    if (dirs.length === 0) {
+        return "";
+    }
     const segments = dirs.map((dir) => dir.split(path.sep));
     const minLen = Math.min(...segments.map((parts) => parts.length));
     const common = [];
@@ -197,30 +351,66 @@ function longestCommonAncestor(dirs) {
             break;
         }
     }
-    if (common.length === 0) {
-        return path.sep;
-    }
     return common.join(path.sep);
 }
-export function getSharedColocationIssue(filePath, graph, rootDir, layerDirs) {
-    if (shouldSkipColocation(filePath, graph, layerDirs)) {
+function folderOwnerAncestors(filePath, graph, rootDir) {
+    const realRoot = safeRealpath(rootDir) ?? rootDir;
+    const dirs = [];
+    let dir = path.dirname(filePath);
+    while (true) {
+        if (directoryHasMatchingEntry(dir, graph)) {
+            dirs.push(dir);
+        }
+        if (dir === realRoot) {
+            break;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            break;
+        }
+        dir = parent;
+    }
+    return dirs;
+}
+export function getSharedColocationIssue(filePath, ctx) {
+    if (shouldSkipColocation(filePath, ctx)) {
         return undefined;
     }
-    const owners = collectConsumerOwners(filePath, graph, rootDir);
+    const owners = collectConsumerOwners(filePath, ctx);
     if (owners.size < 2) {
         return undefined;
     }
     const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
     const lca = longestCommonAncestor(ownerDirs);
-    const containing = ownerDirs.filter((dir) => isInsideDir(filePath, dir));
-    if (containing.length > 0) {
-        const longestLen = Math.max(...containing.map((dir) => dir.length));
-        const innermost = containing.filter((dir) => dir.length === longestLen);
-        if (innermost.length === 1 && innermost[0] !== lca) {
-            return "sharedInsideOwner";
+    // Only a folder owner has a folder to be inside of; a standalone owner's parent
+    // directory belongs to nobody. Every folder owner above the subject counts, not
+    // just the innermost one, so a folder entry buried in an unrelated tree is
+    // still caught by the tree it is buried in.
+    const consumerFolderDirs = [...owners.values()]
+        .filter((owner) => owner.kind === "folder")
+        .map((owner) => owner.path);
+    const candidates = new Set([
+        ...consumerFolderDirs,
+        ...folderOwnerAncestors(filePath, ctx.graph, ctx.rootDir),
+    ]);
+    const containing = [...candidates].filter((dir) => {
+        if (!isInsideDir(filePath, dir)) {
+            return false;
         }
+        // A folder at or above the common ancestor holds every consumer, so being
+        // inside it is not "tucked inside one owner".
+        if (!isInsideDir(dir, lca)) {
+            return false;
+        }
+        // A folder's own entry is never misplaced within its own folder - there is
+        // nowhere else for it to go. If the folder itself sits in the wrong place,
+        // the folders above it say so, and they are still in this list.
+        return !isOwnerEntryFile(filePath, dir, ctx.graph);
+    });
+    if (containing.length > 0) {
+        return "sharedInsideOwner";
     }
-    if (filePath !== lca && !isInsideDir(filePath, lca)) {
+    if (!isInsideDir(filePath, lca)) {
         return "sharedTooHigh";
     }
     return undefined;

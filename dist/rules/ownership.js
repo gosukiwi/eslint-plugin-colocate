@@ -1,51 +1,109 @@
-import fs from "node:fs";
 import path from "node:path";
-import { getGraph, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
-import { countLocalReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
-function isCssFile(filePath) {
-    return path.basename(filePath).endsWith(".css");
+import { safeReaddir, safeRealpath, safeStat } from "../lib/fs-safe.js";
+import { getGraph, isExcludedPath, isOutsideRoot, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
+import { collectReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
+const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
+function isStylesheet(filePath) {
+    const basename = path.basename(filePath);
+    return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
-function countDirectoryContentsRecursive(dir) {
+function countSourceFilesRecursive(dir, rootDir, ignore) {
     let sourceCount = 0;
-    let cssCount = 0;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of safeReaddir(dir)) {
         const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
+        const relPath = path.relative(rootDir, fullPath);
+        // Files excluded from the graph must not count here either, or an ignored
+        // generated file keeps a wrapper directory looking populated.
+        if (matchesIgnore(relPath, ignore)) {
+            continue;
+        }
+        // Symlinks read as neither file nor directory, so a linked subdirectory of
+        // sources used to leave the parent looking like a single-file wrapper.
+        const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
+        const isDirectory = entry.isSymbolicLink()
+            ? (stat?.isDirectory() ?? false)
+            : entry.isDirectory();
+        if (isDirectory) {
             if (SKIP_DIRS.has(entry.name)) {
                 continue;
             }
-            const nested = countDirectoryContentsRecursive(fullPath);
-            sourceCount += nested.sourceCount;
-            cssCount += nested.cssCount;
+            sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
             continue;
         }
-        if (!entry.isFile()) {
+        const isFile = entry.isSymbolicLink()
+            ? (stat?.isFile() ?? false)
+            : entry.isFile();
+        if (!isFile) {
             continue;
         }
-        if (isCssFile(fullPath)) {
-            cssCount += 1;
-            continue;
-        }
-        if (isSourceFile(fullPath) && !isTestFile(fullPath)) {
+        if (isSourceFile(fullPath) && !isTestFile(relPath)) {
             sourceCount += 1;
         }
     }
-    return { sourceCount, cssCount };
+    return sourceCount;
 }
-function isSingletonWrapperDirectory(dir, filename) {
-    const { sourceCount, cssCount } = countDirectoryContentsRecursive(dir);
-    if (sourceCount !== 1 || cssCount !== 0) {
+// Only beside the file: a stylesheet several directories down is not a
+// companion, and treating it as one silently exempted the wrapper.
+function hasCompanionStylesheet(dir) {
+    return safeReaddir(dir).some((entry) => {
+        if (!isStylesheet(entry.name)) {
+            return false;
+        }
+        // readdir reports a symlink as neither file nor directory.
+        return entry.isSymbolicLink()
+            ? (safeStat(path.join(dir, entry.name))?.isFile() ?? false)
+            : entry.isFile();
+    });
+}
+function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
+    if (countSourceFilesRecursive(dir, rootDir, ignore) !== 1 ||
+        hasCompanionStylesheet(dir)) {
         return false;
     }
     const dirName = path.basename(dir);
     const fileBasename = path.basename(filename, path.extname(filename));
     return fileBasename === dirName || fileBasename === "index";
 }
+// A relative root is resolved against the working directory, but ESLint may be
+// invoked from anywhere - a subdirectory, via lint-staged, from a monorepo script.
+// Resolving "src" against cwd alone meant the directory was simply not found from
+// a subdirectory, and a missing root reports nothing, so the rule went quiet
+// instead of complaining. Walk up until the configured root exists.
+function isProjectBoundary(dir) {
+    return (safeStat(path.join(dir, "package.json")) !== undefined ||
+        safeStat(path.join(dir, ".git")) !== undefined);
+}
+function resolveRootDir(rootOption, cwd) {
+    if (path.isAbsolute(rootOption)) {
+        return rootOption;
+    }
+    let dir = cwd;
+    while (true) {
+        const candidate = path.resolve(dir, rootOption);
+        if (safeStat(candidate)?.isDirectory() === true) {
+            return candidate;
+        }
+        // Stop at the project it belongs to. Unbounded, the walk would happily
+        // resolve root: "src" to a checkout's parent directory that happens to be
+        // called src, taking unrelated projects into the graph and making the
+        // findings depend on where the repository sits on disk.
+        if (isProjectBoundary(dir)) {
+            break;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            break;
+        }
+        dir = parent;
+    }
+    return path.resolve(cwd, rootOption);
+}
 const rule = {
     meta: {
         type: "problem",
         docs: {
             description: "Enforce dependency-ownership file layout",
+            url: "https://github.com/gosukiwi/file-ownership-lint#what-it-reports",
         },
         schema: [
             {
@@ -55,6 +113,7 @@ const rule = {
                     ignore: { type: "array", items: { type: "string" } },
                     layers: { type: "array", items: { type: "string" } },
                 },
+                additionalProperties: false,
             },
         ],
         messages: {
@@ -67,42 +126,49 @@ const rule = {
     },
     create(context) {
         const options = (context.options[0] ?? {});
-        const rootOption = options.root ?? "src";
+        const rootOption = options.root ?? ".";
         const ignore = options.ignore ?? [];
         const layers = options.layers ?? [];
         const cwd = context.cwd;
-        const rootDir = path.isAbsolute(rootOption)
-            ? rootOption
-            : path.resolve(cwd, rootOption);
-        const realRootDir = fs.realpathSync(rootDir);
-        const layerDirs = resolveLayerDirectories(cwd, layers);
         return {
             Program(node) {
                 const filename = context.filename;
-                if (!isSourceFile(filename) || isTestFile(filename)) {
+                if (!isSourceFile(filename)) {
                     return;
                 }
-                const relPath = path.relative(rootDir, filename);
-                if (matchesIgnore(relPath, ignore)) {
+                // Resolved lazily: a configured root that does not exist, or a linted
+                // path that is not on disk (processors, --stdin-filename, a file
+                // deleted mid-run), means "nothing to say" rather than a crash.
+                const rootDir = resolveRootDir(rootOption, cwd);
+                const realRootDir = safeRealpath(rootDir);
+                const realFilename = safeRealpath(filename);
+                if (realRootDir === undefined || realFilename === undefined) {
                     return;
                 }
-                const dir = path.dirname(filename);
-                const realDir = fs.realpathSync(dir);
-                const realFilename = fs.realpathSync(filename);
+                const relPath = path.relative(realRootDir, realFilename);
+                if (isOutsideRoot(relPath) ||
+                    isTestFile(relPath) ||
+                    isExcludedPath(relPath, ignore)) {
+                    return;
+                }
+                const realDir = path.dirname(realFilename);
                 const graph = getGraph(rootDir, ignore, realFilename);
-                if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
+                const layerDirs = resolveLayerDirectories(graph, cwd, layers, realRootDir);
+                const ownershipContext = { graph, rootDir: realRootDir, layerDirs };
+                if (realDir !== realRootDir &&
+                    isSingletonWrapperDirectory(realDir, realFilename, realRootDir, ignore)) {
                     context.report({
                         node,
                         messageId: "singletonFolder",
                     });
                 }
-                if (isPrivateOutsideOwner(realFilename, graph, realRootDir, layerDirs)) {
+                if (isPrivateOutsideOwner(realFilename, ownershipContext)) {
                     context.report({
                         node,
                         messageId: "privateOutsideOwner",
                     });
                 }
-                const sharedIssue = getSharedColocationIssue(realFilename, graph, realRootDir, layerDirs);
+                const sharedIssue = getSharedColocationIssue(realFilename, ownershipContext);
                 if (sharedIssue !== undefined) {
                     context.report({
                         node,
@@ -110,16 +176,15 @@ const rule = {
                     });
                 }
                 const basename = path.basename(filename, path.extname(filename));
-                if (basename !== "index") {
+                if (basename !== "index" || realDir === realRootDir) {
                     return;
                 }
-                const dirName = path.basename(dir);
+                const dirName = path.basename(realDir);
                 const filesInDir = graph.files.filter((file) => {
                     const fileDir = path.dirname(file);
                     return fileDir === realDir;
                 });
                 const outsideImporters = new Set();
-                const outsideImportTargets = new Set();
                 let allOutsideImportsTargetIndex = true;
                 for (const fileInDir of filesInDir) {
                     const importers = graph.importers.get(fileInDir) ?? [];
@@ -129,7 +194,6 @@ const rule = {
                             continue;
                         }
                         outsideImporters.add(importer);
-                        outsideImportTargets.add(fileInDir);
                         if (fileInDir !== realFilename) {
                             allOutsideImportsTargetIndex = false;
                         }
@@ -138,19 +202,29 @@ const rule = {
                 if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
                     return;
                 }
-                for (const target of outsideImportTargets) {
-                    const fileBase = path.basename(target, path.extname(target));
-                    if (fileBase === dirName) {
-                        return;
-                    }
+                const { local, total } = collectReExports(realFilename, realDir);
+                // An index that also re-exports modules from elsewhere is an aggregator,
+                // not a stand-in for one sibling: the message would name a "named entry
+                // file" that does not exist and dropping the barrel would lose the rest.
+                if (local.length !== 1 || total !== 1) {
+                    return;
                 }
-                const reExportCount = countLocalReExports(realFilename, dir);
-                if (reExportCount === 1) {
-                    context.report({
-                        node,
-                        messageId: "mismatchedEntry",
-                    });
+                // Only modules the graph knows about, so the message cannot point at a
+                // file the user has excluded.
+                const graphFiles = new Set(graph.files);
+                if (!graphFiles.has(local[0])) {
+                    return;
                 }
+                // Re-exporting the directory's own named entry keeps the folder a real
+                // owner; the barrel only makes `./Foo` resolve to `Foo/Foo.ts`.
+                const target = local[0];
+                if (path.basename(target, path.extname(target)) === dirName) {
+                    return;
+                }
+                context.report({
+                    node,
+                    messageId: "mismatchedEntry",
+                });
             },
         };
     },
