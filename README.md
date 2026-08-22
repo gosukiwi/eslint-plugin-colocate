@@ -1,6 +1,6 @@
 # file-ownership-lint
 
-ESLint 9 plugin that flags source files whose placement breaks dependency-ownership layout.
+ESLint plugin that flags source files whose placement breaks dependency-ownership layout.
 
 ## Install
 
@@ -8,7 +8,7 @@ ESLint 9 plugin that flags source files whose placement breaks dependency-owners
 npm install -D file-ownership-lint
 ```
 
-Requires ESLint 9 or later (peer dependency).
+Requires ESLint 9 or later (peer dependency). Developed and tested against ESLint 10.
 
 ## Usage
 

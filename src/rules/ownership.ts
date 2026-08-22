@@ -133,10 +133,12 @@ const rule: Rule.RuleModule = {
         const realDir = fs.realpathSync(dir);
         const realFilename = fs.realpathSync(filename);
         const graph = getGraph(rootDir, ignore, realFilename);
+        // Report on the first statement so eslint-disable comments still apply under ESLint 10.
+        const reportNode = node.body[0] ?? node;
 
         if (realDir !== realRootDir && isSingletonWrapperDirectory(dir, filename)) {
           context.report({
-            node,
+            node: reportNode,
             messageId: "singletonFolder",
           });
         }
@@ -145,7 +147,7 @@ const rule: Rule.RuleModule = {
           isPrivateOutsideOwner(realFilename, graph, realRootDir, layerDirs)
         ) {
           context.report({
-            node,
+            node: reportNode,
             messageId: "privateOutsideOwner",
           });
         }
@@ -158,7 +160,7 @@ const rule: Rule.RuleModule = {
         );
         if (sharedIssue !== undefined) {
           context.report({
-            node,
+            node: reportNode,
             messageId: sharedIssue,
           });
         }
@@ -209,7 +211,7 @@ const rule: Rule.RuleModule = {
         const reExportCount = countLocalReExports(realFilename, dir);
         if (reExportCount === 1) {
           context.report({
-            node,
+            node: reportNode,
             messageId: "mismatchedEntry",
           });
         }
