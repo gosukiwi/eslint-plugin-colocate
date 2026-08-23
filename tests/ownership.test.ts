@@ -555,10 +555,10 @@ describe("ownership rule", () => {
         {
           files: ["**/*.{js,jsx,ts,tsx,mts,cts,mjs,cjs}"],
           plugins: {
-            "file-ownership-lint": plugin,
+            colocate: plugin,
           },
           rules: {
-            "file-ownership-lint/ownership": ["error", {}],
+            "colocate/ownership": ["error", {}],
           },
           languageOptions: {
             parser: tsParser,
@@ -577,7 +577,7 @@ describe("ownership rule", () => {
     for (const result of results) {
       for (const message of result.messages) {
         if (
-          message.ruleId === "file-ownership-lint/ownership" &&
+          message.ruleId === "colocate/ownership" &&
           message.messageId
         ) {
           messages.push({

@@ -395,7 +395,7 @@ function aliasCandidates(specifier, options) {
 }
 export function resolveSpecifier(specifier, fromDir, settings) {
     const options = settings?.options ?? RESOLUTION_OVERRIDES;
-    const { resolvedModule } = ts.resolveModuleName(specifier, path.join(fromDir, "__file-ownership-lint__.ts"), options, ts.sys, settings?.cache);
+    const { resolvedModule } = ts.resolveModuleName(specifier, path.join(fromDir, "__colocate__.ts"), options, ts.sys, settings?.cache);
     if (resolvedModule !== undefined && isSourceFile(resolvedModule.resolvedFileName)) {
         const resolved = safeRealpath(resolvedModule.resolvedFileName);
         if (resolved !== undefined) {

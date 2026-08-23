@@ -529,7 +529,7 @@ export function resolveSpecifier(
   const options = settings?.options ?? RESOLUTION_OVERRIDES;
   const { resolvedModule } = ts.resolveModuleName(
     specifier,
-    path.join(fromDir, "__file-ownership-lint__.ts"),
+    path.join(fromDir, "__colocate__.ts"),
     options,
     ts.sys,
     settings?.cache,
