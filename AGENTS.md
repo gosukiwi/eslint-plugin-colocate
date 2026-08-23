@@ -4,7 +4,7 @@ Guidance for agents working on this repository. Consumer-facing usage lives in `
 
 ## What this is
 
-ESLint 9+ plugin (`file-ownership-lint/ownership`) that walks a source tree, builds an import graph, and reports files whose **location** does not match **who depends on them**. ESM only, Node 20+, TypeScript with `module: NodeNext`. Tests import `src/` directly; `npm run build` emits `dist/` for the published package.
+ESLint 9+ plugin (`colocate/ownership`) that walks a source tree, builds an import graph, and reports files whose **location** does not match **who depends on them**. ESM only, Node 20+, TypeScript with `module: NodeNext`. Tests import `src/` directly; `npm run build` emits `dist/` for the published package.
 
 Peer: `eslint >= 9`. Developed against ESLint 10. TypeScript is both a runtime dependency (compiler API for parse/resolve) and a devDependency.
 

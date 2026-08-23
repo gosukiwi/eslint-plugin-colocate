@@ -86,7 +86,7 @@ describe("getGraph", () => {
 
     const outsideFile = path.join(
       os.tmpdir(),
-      `file-ownership-lint-outside-${process.pid}.ts`,
+      `colocate-outside-${process.pid}.ts`,
     );
     try {
       fs.writeFileSync(outsideFile, "export const x = 1;\n");

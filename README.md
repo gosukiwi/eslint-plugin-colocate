@@ -1,4 +1,4 @@
-# file-ownership-lint
+# eslint-plugin-colocate
 
 ESLint (v9+) plugin that flags source files sitting in the wrong place, given who imports them.
 
@@ -13,15 +13,15 @@ npm install -D gosukiwi/file-ownership-lint
 ## Usage
 
 ```js
-import fileOwnershipLint from "file-ownership-lint";
+import colocate from "eslint-plugin-colocate";
 
 export default [
   {
     plugins: {
-      "file-ownership-lint": fileOwnershipLint,
+      colocate,
     },
     rules: {
-      "file-ownership-lint/ownership": [
+      "colocate/ownership": [
         "error",
         {
           root: "src",

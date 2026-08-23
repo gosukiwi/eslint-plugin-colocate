@@ -35,10 +35,10 @@ export function makeESLint(
       {
         files: ["**/*.{js,jsx,ts,tsx,mts,cts,mjs,cjs}"],
         plugins: {
-          "file-ownership-lint": plugin,
+          colocate: plugin,
         },
         rules: {
-          "file-ownership-lint/ownership": ["error", ruleOptions ?? {}],
+          "colocate/ownership": ["error", ruleOptions ?? {}],
         },
         languageOptions,
       },
@@ -61,7 +61,7 @@ export function collectMessages(
         );
         continue;
       }
-      if (message.ruleId === "file-ownership-lint/ownership" && message.messageId) {
+      if (message.ruleId === "colocate/ownership" && message.messageId) {
         messages.push({
           file: path.relative(cwd, result.filePath),
           messageId: message.messageId,
