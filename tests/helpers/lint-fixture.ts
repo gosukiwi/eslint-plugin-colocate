@@ -12,8 +12,22 @@ const fixturesDir = path.join(
 export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
+  options?: { parser?: "typescript" | "espree" },
 ): Promise<{ file: string; messageId: string }[]> {
   const cwd = path.join(fixturesDir, name);
+  const languageOptions =
+    options?.parser === "espree"
+      ? {
+          sourceType: "module" as const,
+          ecmaVersion: 2022 as const,
+        }
+      : {
+          parser: tsParser,
+          parserOptions: {
+            sourceType: "module",
+            ecmaVersion: 2022,
+          },
+        };
   const eslint = new ESLint({
     cwd,
     overrideConfigFile: true,
@@ -26,13 +40,7 @@ export async function lintFixture(
         rules: {
           "file-ownership-lint/ownership": ["error", ruleOptions ?? {}],
         },
-        languageOptions: {
-          parser: tsParser,
-          parserOptions: {
-            sourceType: "module",
-            ecmaVersion: 2022,
-          },
-        },
+        languageOptions,
       },
     ],
   });

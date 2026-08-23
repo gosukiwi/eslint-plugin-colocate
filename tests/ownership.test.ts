@@ -38,6 +38,15 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("honors a file-level eslint-disable comment with Espree on ESLint 10", async () => {
+    const messages = await lintFixture(
+      "eslint-disable-ownership-js",
+      {},
+      { parser: "espree" },
+    );
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("reports mismatchedEntry when index re-exports one module and outside imports use the barrel", async () => {
     const messages = await lintFixture("mismatch-index");
     expect(sortMessages(messages)).toEqual([
