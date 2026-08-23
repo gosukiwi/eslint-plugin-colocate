@@ -34,6 +34,21 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("honors a file-level eslint-disable comment", async () => {
+    const messages = await lintFixture("eslint-disable-ownership");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("honors a file-level eslint-disable comment with Espree on ESLint 10", async () => {
+    const messages = await lintFixture(
+      "eslint-disable-ownership-js",
+      {},
+      ["src"],
+      { parser: "espree" },
+    );
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("does not report singletonFolder when a companion stylesheet is not CSS", async () => {
     const messages = await lintFixture("singleton-scss-ok");
     expect(sortMessages(messages)).toEqual([]);

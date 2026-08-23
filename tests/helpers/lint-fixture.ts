@@ -9,7 +9,25 @@ const fixturesDir = path.join(
   "../fixtures",
 );
 
-export function makeESLint(cwd: string, ruleOptions?: Record<string, unknown>): ESLint {
+export function makeESLint(
+  cwd: string,
+  ruleOptions?: Record<string, unknown>,
+  options?: { parser?: "typescript" | "espree" },
+): ESLint {
+  const languageOptions =
+    options?.parser === "espree"
+      ? {
+          sourceType: "module" as const,
+          ecmaVersion: 2022 as const,
+        }
+      : {
+          parser: tsParser,
+          parserOptions: {
+            sourceType: "module",
+            ecmaVersion: 2022,
+          },
+        };
+
   return new ESLint({
     cwd,
     overrideConfigFile: true,
@@ -22,13 +40,7 @@ export function makeESLint(cwd: string, ruleOptions?: Record<string, unknown>): 
         rules: {
           "file-ownership-lint/ownership": ["error", ruleOptions ?? {}],
         },
-        languageOptions: {
-          parser: tsParser,
-          parserOptions: {
-            sourceType: "module",
-            ecmaVersion: 2022,
-          },
-        },
+        languageOptions,
       },
     ],
   });
@@ -71,8 +83,9 @@ export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
   targets: string[] = ["src"],
+  options?: { parser?: "typescript" | "espree" },
 ): Promise<{ file: string; messageId: string }[]> {
   const cwd = path.join(fixturesDir, name);
-  const results = await makeESLint(cwd, ruleOptions).lintFiles(targets);
+  const results = await makeESLint(cwd, ruleOptions, options).lintFiles(targets);
   return collectMessages(cwd, results);
 }

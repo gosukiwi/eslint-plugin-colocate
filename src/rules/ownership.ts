@@ -221,20 +221,22 @@ const rule: Rule.RuleModule = {
           realRootDir,
         );
         const ownershipContext = { graph, rootDir: realRootDir, layerDirs };
+        // Report on the first statement so eslint-disable comments still apply under ESLint 10.
+        const reportNode = node.body[0] ?? node;
 
         if (
           realDir !== realRootDir &&
           isSingletonWrapperDirectory(realDir, realFilename, realRootDir, ignore)
         ) {
           context.report({
-            node,
+            node: reportNode,
             messageId: "singletonFolder",
           });
         }
 
         if (isPrivateOutsideOwner(realFilename, ownershipContext)) {
           context.report({
-            node,
+            node: reportNode,
             messageId: "privateOutsideOwner",
           });
         }
@@ -245,7 +247,7 @@ const rule: Rule.RuleModule = {
         );
         if (sharedIssue !== undefined) {
           context.report({
-            node,
+            node: reportNode,
             messageId: sharedIssue,
           });
         }
@@ -306,7 +308,7 @@ const rule: Rule.RuleModule = {
         }
 
         context.report({
-          node,
+          node: reportNode,
           messageId: "mismatchedEntry",
         });
       },
