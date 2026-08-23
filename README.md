@@ -7,7 +7,7 @@ A file used by one module belongs inside that module's folder. A file used by se
 ## Install
 
 ```bash
-npm install -D gosukiwi/file-ownership-lint
+npm install -D gosukiwi/eslint-plugin-colocate
 ```
 
 ## Usage

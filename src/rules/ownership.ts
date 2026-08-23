@@ -153,7 +153,7 @@ const rule: Rule.RuleModule = {
     type: "problem",
     docs: {
       description: "Enforce dependency-ownership file layout",
-      url: "https://github.com/gosukiwi/file-ownership-lint#what-it-reports",
+      url: "https://github.com/gosukiwi/eslint-plugin-colocate#what-it-reports",
     },
     schema: [
       {

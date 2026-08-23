@@ -23,7 +23,7 @@ scripts/check-placement.ts  opt-in satisfiability sweep
 
 `plugin.meta.version` is hardcoded in `src/index.ts`. `tests/plugin-meta.test.ts` asserts it matches `package.json` — bump both.
 
-Rule docs URL is `https://github.com/gosukiwi/file-ownership-lint#what-it-reports`. Keep a heading that GitHub slugifies to `#what-it-reports` in the README.
+Rule docs URL is `https://github.com/gosukiwi/eslint-plugin-colocate#what-it-reports`. Keep a heading that GitHub slugifies to `#what-it-reports` in the README.
 
 ## Commands
 
