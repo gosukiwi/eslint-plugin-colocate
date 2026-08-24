@@ -341,16 +341,30 @@ export interface ResolutionSettings {
   configPaths: string[];
 }
 
-// Keyed on the graph object so the settings - including the TypeScript module
-// resolution cache inside them - live exactly as long as the graph they were
-// built for. A rebuilt graph is a new object, so a rule can never be handed a
-// resolution cache that predates a file being added or removed.
+// Keyed on the graph object: these settings, including the TypeScript module
+// resolution cache inside them, live exactly as long as the graph they were
+// built for and die when it does. When that happens is entirely up to the
+// graph cache's own revalidation (see needsRebuild) - this map just rides
+// along with whatever graph object is current.
 const settingsByGraph = new WeakMap<Graph, ResolutionSettings>();
 
+// Total, not a bare lookup: resolveSpecifier's settings parameter is optional
+// and silently falls back to a lenient default with no project `paths`, so a
+// caller that tolerated `undefined` here would resolve every aliased import
+// to nothing without anything looking broken. The only miss in practice is a
+// graph built from buildGraphWithConfigs' missing-root early return, which
+// has no files to resolve specifiers for anyway, so recomputing here is safe.
 export function getGraphResolutionSettings(
   graph: Graph,
-): ResolutionSettings | undefined {
-  return settingsByGraph.get(graph);
+  rootDir: string,
+): ResolutionSettings {
+  const cached = settingsByGraph.get(graph);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const settings = createResolutionSettings(safeRealpath(rootDir) ?? rootDir);
+  settingsByGraph.set(graph, settings);
+  return settings;
 }
 
 // One lenient policy for every specifier, whatever the project configures for

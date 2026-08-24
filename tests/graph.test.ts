@@ -7,6 +7,7 @@ import {
   getGraph,
   getGraphResolutionSettings,
   isTestFile,
+  resolveSpecifier,
 } from "../src/lib/graph.js";
 
 const fixtureRoot = path.join(
@@ -170,26 +171,51 @@ describe("getGraph", () => {
 });
 
 describe("getGraphResolutionSettings", () => {
-  it("hands back the settings the graph resolved with", () => {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), "colocate-settings-"));
-    fs.mkdirSync(path.join(base, "src"));
-    fs.writeFileSync(path.join(base, "src", "a.ts"), "export const a = 1;\n");
-
-    const graph = getGraph(
-      path.join(base, "src"),
-      [],
-      path.join(base, "src", "a.ts"),
+  it("resolves an aliased specifier the way the graph did, and pins the degraded fallback", () => {
+    const base = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "colocate-settings-")),
     );
-    const settings = getGraphResolutionSettings(graph);
+    const srcDir = path.join(base, "src");
+    fs.mkdirSync(srcDir);
+    fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
+    fs.writeFileSync(
+      path.join(base, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@/*": ["src/*"] },
+        },
+      }),
+    );
 
-    expect(settings).toBeDefined();
-    expect(settings?.options).toBeDefined();
-    expect(Array.isArray(settings?.configPaths)).toBe(true);
+    const graph = getGraph(srcDir, [], path.join(srcDir, "a.ts"));
+    const settings = getGraphResolutionSettings(graph, srcDir);
+
+    expect(settings.options.paths).toEqual({ "@/*": ["src/*"] });
+    expect(settings.configPaths).toContain(path.join(base, "tsconfig.json"));
+    expect(resolveSpecifier("@/b", srcDir, settings)).toBe(
+      path.join(base, "src", "b.ts"),
+    );
+    // Pinned on purpose: this is the silent-degradation mode the settings
+    // exist to avoid. Without them, an aliased import resolves to nothing.
+    expect(resolveSpecifier("@/b", srcDir)).toBeUndefined();
   });
 
-  it("returns undefined for a graph it never built", () => {
-    expect(
-      getGraphResolutionSettings({ files: [], importers: new Map() }),
-    ).toBeUndefined();
+  it("computes fresh settings for a graph it never built", () => {
+    const base = fs.mkdtempSync(
+      path.join(os.tmpdir(), "colocate-settings-fresh-"),
+    );
+    const srcDir = path.join(base, "src");
+    fs.mkdirSync(srcDir);
+    fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
+
+    const settings = getGraphResolutionSettings(
+      { files: [], importers: new Map() },
+      srcDir,
+    );
+
+    expect(settings.options).toBeDefined();
+    expect(Array.isArray(settings.configPaths)).toBe(true);
   });
 });
