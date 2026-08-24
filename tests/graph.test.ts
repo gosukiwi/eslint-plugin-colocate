@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { getGraph, isTestFile } from "../src/lib/graph.js";
+import {
+  getGraph,
+  getGraphResolutionSettings,
+  isTestFile,
+} from "../src/lib/graph.js";
 
 const fixtureRoot = path.join(
   fileURLToPath(new URL(".", import.meta.url)),
@@ -162,5 +166,30 @@ describe("getGraph", () => {
 
     expect(graph.importers.get(bPath)).toEqual([aPath]);
     expect(graph.files).toEqual([aPath, bPath]);
+  });
+});
+
+describe("getGraphResolutionSettings", () => {
+  it("hands back the settings the graph resolved with", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "colocate-settings-"));
+    fs.mkdirSync(path.join(base, "src"));
+    fs.writeFileSync(path.join(base, "src", "a.ts"), "export const a = 1;\n");
+
+    const graph = getGraph(
+      path.join(base, "src"),
+      [],
+      path.join(base, "src", "a.ts"),
+    );
+    const settings = getGraphResolutionSettings(graph);
+
+    expect(settings).toBeDefined();
+    expect(settings?.options).toBeDefined();
+    expect(Array.isArray(settings?.configPaths)).toBe(true);
+  });
+
+  it("returns undefined for a graph it never built", () => {
+    expect(
+      getGraphResolutionSettings({ files: [], importers: new Map() }),
+    ).toBeUndefined();
   });
 });

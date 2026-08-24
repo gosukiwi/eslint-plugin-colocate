@@ -341,6 +341,18 @@ export interface ResolutionSettings {
   configPaths: string[];
 }
 
+// Keyed on the graph object so the settings - including the TypeScript module
+// resolution cache inside them - live exactly as long as the graph they were
+// built for. A rebuilt graph is a new object, so a rule can never be handed a
+// resolution cache that predates a file being added or removed.
+const settingsByGraph = new WeakMap<Graph, ResolutionSettings>();
+
+export function getGraphResolutionSettings(
+  graph: Graph,
+): ResolutionSettings | undefined {
+  return settingsByGraph.get(graph);
+}
+
 // One lenient policy for every specifier, whatever the project configures for
 // tsc: bundler-style resolution accepts extensionless imports and maps
 // "./x.js" onto x.ts, which is how these projects are actually built.
@@ -621,7 +633,9 @@ function buildGraphWithConfigs(
     }
   }
 
-  return { graph: { importers, files }, configPaths: settings.configPaths };
+  const graph: Graph = { importers, files };
+  settingsByGraph.set(graph, settings);
+  return { graph, configPaths: settings.configPaths };
 }
 
 interface FileStamp {
