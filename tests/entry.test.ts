@@ -114,4 +114,32 @@ describe("entry rule", () => {
       },
     ]);
   });
+
+  // A type is part of the surface, and the graph records no import kind, so
+  // there is nothing to exempt even if we wanted to.
+  it("reports a type-only import that reaches past an entry", async () => {
+    const messages = await lintEntryFixture("entry-type-only", { root: "src" });
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/types.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // No barrel exemption: re-exporting a private file under a public name is a
+  // worse leak than importing it directly.
+  it("reports a barrel that re-exports past an entry", async () => {
+    const messages = await lintEntryFixture("entry-reexport-barrel", { root: "src" });
+    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
+      { file: "src/pages/index.ts", line: 1 },
+      { file: "src/pages/index.ts", line: 2 },
+    ]);
+    expect(messages[0].message).toBe(
+      "'pages/Feature/helper.ts' is inside module 'pages/Feature'; import it through 'pages/Feature/Feature.ts', or move it out of 'pages/Feature' if it is not part of it.",
+    );
+  });
 });

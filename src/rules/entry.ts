@@ -143,6 +143,18 @@ const rule: Rule.RuleModule = {
       ImportDeclaration(node) {
         checkSource(node.source);
       },
+      // No barrel exemption here, unlike ownership's namespace-barrel
+      // handling: that exemption is about where a file belongs, not about
+      // whether reaching through it is legal. A barrel that re-exports a
+      // private file under a public name launders the violation - every
+      // downstream consumer of the barrel then looks innocent - so `export
+      // ... from` is checked exactly like an import.
+      ExportNamedDeclaration(node) {
+        checkSource(node.source);
+      },
+      ExportAllDeclaration(node) {
+        checkSource(node.source);
+      },
     };
   },
 };
