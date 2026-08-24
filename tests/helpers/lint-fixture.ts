@@ -59,7 +59,10 @@ export function makeESLint(
 // The real collection loop lives here so the fatal-parse-error check has one
 // implementation; collectMessages below is a thin projection onto the
 // two-key shape the ownership assertions were already written against.
-function collectRuleMessages(
+// Exported so a temp-directory test for a new rule (the makeESLint +
+// collectMessages idiom in cache.test.ts) doesn't silently get `[]` back
+// from collectMessages's hardcoded "colocate/ownership" filter.
+export function collectRuleMessages(
   cwd: string,
   results: ESLint.LintResult[],
   ruleName: RuleName,
@@ -105,15 +108,24 @@ export function collectMessages(
   );
 }
 
+// Ownership assertions compare whole objects with toEqual, so they want the
+// two-key shape below. Reach for lintFixtureRule instead when a fixture
+// packs several findings into one file and the assertion needs line/message
+// to tell them apart.
 export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
   targets: string[] = ["src"],
   options?: { parser?: "typescript" | "espree" },
 ): Promise<{ file: string; messageId: string }[]> {
-  const cwd = path.join(fixturesDir, name);
-  const results = await makeESLint(cwd, ruleOptions, options).lintFiles(targets);
-  return collectMessages(cwd, results);
+  const messages = await lintFixtureRule(
+    name,
+    "ownership",
+    ruleOptions,
+    targets,
+    options,
+  );
+  return messages.map(({ file, messageId }) => ({ file, messageId }));
 }
 
 export async function lintFixtureRule(
@@ -121,10 +133,12 @@ export async function lintFixtureRule(
   rule: RuleName,
   ruleOptions?: Record<string, unknown>,
   targets: string[] = ["src"],
+  options?: { parser?: "typescript" | "espree" },
 ): Promise<FixtureMessage[]> {
   const cwd = path.join(fixturesDir, name);
-  const results = await makeESLint(cwd, ruleOptions, { rule }).lintFiles(
-    targets,
-  );
+  const results = await makeESLint(cwd, ruleOptions, {
+    ...options,
+    rule,
+  }).lintFiles(targets);
   return collectRuleMessages(cwd, results, rule);
 }
