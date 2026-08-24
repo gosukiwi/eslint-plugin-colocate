@@ -9,10 +9,19 @@ const fixturesDir = path.join(
   "../fixtures",
 );
 
+export type RuleName = "ownership" | "entry";
+
+export interface FixtureMessage {
+  file: string;
+  messageId: string;
+  line: number;
+  message: string;
+}
+
 export function makeESLint(
   cwd: string,
   ruleOptions?: Record<string, unknown>,
-  options?: { parser?: "typescript" | "espree" },
+  options?: { parser?: "typescript" | "espree"; rule?: RuleName },
 ): ESLint {
   const languageOptions =
     options?.parser === "espree"
@@ -27,6 +36,7 @@ export function makeESLint(
             ecmaVersion: 2022,
           },
         };
+  const ruleName = options?.rule ?? "ownership";
 
   return new ESLint({
     cwd,
@@ -38,7 +48,7 @@ export function makeESLint(
           colocate: plugin,
         },
         rules: {
-          "colocate/ownership": ["error", ruleOptions ?? {}],
+          [`colocate/${ruleName}`]: ["error", ruleOptions ?? {}],
         },
         languageOptions,
       },
@@ -46,12 +56,17 @@ export function makeESLint(
   });
 }
 
-export function collectMessages(
+// The real collection loop lives here so the fatal-parse-error check has one
+// implementation; collectMessages below is a thin projection onto the
+// two-key shape the ownership assertions were already written against.
+function collectRuleMessages(
   cwd: string,
   results: ESLint.LintResult[],
-): { file: string; messageId: string }[] {
-  const messages: { file: string; messageId: string }[] = [];
+  ruleName: RuleName,
+): FixtureMessage[] {
+  const messages: FixtureMessage[] = [];
   const fatal: string[] = [];
+  const ruleId = `colocate/${ruleName}`;
 
   for (const result of results) {
     for (const message of result.messages) {
@@ -61,10 +76,12 @@ export function collectMessages(
         );
         continue;
       }
-      if (message.ruleId === "colocate/ownership" && message.messageId) {
+      if (message.ruleId === ruleId && message.messageId) {
         messages.push({
           file: path.relative(cwd, result.filePath),
           messageId: message.messageId,
+          line: message.line,
+          message: message.message,
         });
       }
     }
@@ -79,6 +96,15 @@ export function collectMessages(
   return messages;
 }
 
+export function collectMessages(
+  cwd: string,
+  results: ESLint.LintResult[],
+): { file: string; messageId: string }[] {
+  return collectRuleMessages(cwd, results, "ownership").map(
+    ({ file, messageId }) => ({ file, messageId }),
+  );
+}
+
 export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
@@ -88,4 +114,17 @@ export async function lintFixture(
   const cwd = path.join(fixturesDir, name);
   const results = await makeESLint(cwd, ruleOptions, options).lintFiles(targets);
   return collectMessages(cwd, results);
+}
+
+export async function lintFixtureRule(
+  name: string,
+  rule: RuleName,
+  ruleOptions?: Record<string, unknown>,
+  targets: string[] = ["src"],
+): Promise<FixtureMessage[]> {
+  const cwd = path.join(fixturesDir, name);
+  const results = await makeESLint(cwd, ruleOptions, { rule }).lintFiles(
+    targets,
+  );
+  return collectRuleMessages(cwd, results, rule);
 }
