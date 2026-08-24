@@ -147,6 +147,7 @@ Unit/integration split:
 - `owners.test.ts` — layer glob expansion / memoisation
 - `robustness.test.ts` — missing root, missing file, unreadable, deleted importer
 - `plugin-meta.test.ts` — exported surface
+- `root.test.ts` — relative root resolution and the project-boundary ceiling
 
 After changing owners, shells, layers, barrels, or what counts as a consumer, run `npm run check:placement`. It generates random layouts, places a subject at every plausible path, and fails if any configuration has **no** accepted location.
 

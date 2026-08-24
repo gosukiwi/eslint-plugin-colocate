@@ -21,13 +21,13 @@ describe("resolveRootDir", () => {
 
   it("stops at the project boundary instead of escaping the checkout", () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), "colocate-root-"));
-    fs.mkdirSync(path.join(base, "project"), { recursive: true });
-    fs.writeFileSync(path.join(base, "project", "package.json"), "{}");
+    const project = path.join(base, "project");
+    const deep = path.join(project, "a", "b");
+    fs.mkdirSync(deep, { recursive: true });
+    fs.writeFileSync(path.join(project, "package.json"), "{}");
     fs.mkdirSync(path.join(base, "src"));
 
-    // "src" exists above the project, but the walk must not reach it.
-    expect(resolveRootDir("src", path.join(base, "project"))).toBe(
-      path.join(base, "project", "src"),
-    );
+    // "src" exists above the project, but the walk must stop at the package.json.
+    expect(resolveRootDir("src", deep)).toBe(path.join(deep, "src"));
   });
 });
