@@ -338,4 +338,27 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-disable", { root: "src" });
     expect(messages).toEqual([]);
   });
+
+  it("stays silent on unresolvable and bare specifiers", async () => {
+    const messages = await lintEntryFixture("entry-unresolvable", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  it("stays silent when root does not exist", async () => {
+    const messages = await lintEntryFixture("entry-reaches-past", {
+      root: "does-not-exist",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // Declaration files are excluded from the graph, so an index.d.ts is not a
+  // door and the directory it sits in is not a gate.
+  it("does not treat a declaration file as an entry", async () => {
+    const messages = await lintEntryFixture("entry-dts-not-a-door", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
 });
