@@ -117,6 +117,8 @@ src/pages/Home/Home.ts
 
 ## Options
 
+*These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options.*
+
 ### `root`
 
 Directory to walk, and the ceiling for ownership. Default `"."`. Set `"src"` for a typical app.
@@ -142,6 +144,8 @@ Globs relative to `root`. Ignored files are not reported and do not count as con
 Unknown option names are rejected.
 
 ## What it reports
+
+*This covers `colocate/ownership`'s findings. `colocate/entry` reports a single finding, `reachesPastEntry` — see [The entry rule](#the-entry-rule).*
 
 | message | meaning | usual fix |
 | --- | --- | --- |

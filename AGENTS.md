@@ -170,7 +170,7 @@ expect(sortMessages(messages)).toEqual([
 Unit/integration split:
 
 - `ownership.test.ts` — rule findings against fixtures
-- `entry.test.ts` — entry-rule findings against fixtures, including its degradation cases (missing root, missing file, unreadable, deleted importer) alongside their positive controls, rather than in `robustness.test.ts`
+- `entry.test.ts` — entry-rule findings against fixtures, including its degradation cases (missing root, missing file, unresolvable specifier) alongside their positive controls, rather than in `robustness.test.ts`
 - `gates.test.ts` — `isEntryFile`, `getGates`, `findCrossedGate` unit tests
 - `harness.test.ts` — the shared fixture-lint helper itself (two-key ownership shape, per-rule/per-import entry shape)
 - `graph.test.ts` / `walk.test.ts` — resolution, walk, skip rules, temp trees + symlinks
