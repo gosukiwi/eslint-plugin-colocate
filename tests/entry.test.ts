@@ -4,7 +4,11 @@ import { ESLint } from "eslint";
 import tsParser from "@typescript-eslint/parser";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
-import { collectRuleMessages, lintEntryFixture } from "./helpers/lint-fixture.js";
+import {
+  collectRuleMessages,
+  lintEntryFixture,
+  makeESLint,
+} from "./helpers/lint-fixture.js";
 
 describe("entry rule", () => {
   // src/app.ts is an entry point: nothing imports it, so the ownership model
@@ -329,11 +333,31 @@ describe("entry rule", () => {
     expect(messages).toEqual([]);
   });
 
+  // Control for the test above: without it, the previous [] could just mean
+  // this fixture never produced a finding in the first place. Pinning the
+  // full object (not just a count) is what stops a future change that
+  // relocates or renames the finding from still satisfying a weaker
+  // assertion here - the same reasoning the dynamic-import test above uses.
   it("still reports the same fixture without the ignore glob", async () => {
     const messages = await lintEntryFixture("entry-ignore", { root: "src" });
-    expect(messages).toHaveLength(1);
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
   });
 
+  // The report lands on the specifier node (not node.body[0] ?? node), so a
+  // line-level eslint-disable-next-line works without the Program-node
+  // workaround ownership needs there - that workaround exists only because
+  // ESLint 10 drops Program-node reports. Because this rule never reports on
+  // Program, it also has no need for ownership's Espree disable twin
+  // (eslint-disable-ownership-js): the parser choice cannot change which
+  // node the report is anchored to.
   it("honours a line-level eslint-disable comment", async () => {
     const messages = await lintEntryFixture("entry-disable", { root: "src" });
     expect(messages).toEqual([]);
@@ -346,6 +370,17 @@ describe("entry rule", () => {
     expect(messages).toEqual([]);
   });
 
+  // resolveRootDir("does-not-exist", cwd) walks up looking for an existing
+  // directory, hits the project boundary (nearest package.json/.git) before
+  // finding one, and falls back to <fixture>/does-not-exist, which is not on
+  // disk - so safeRealpath(rootDir) is undefined and create bails at the
+  // *first* guard (realRootDir === undefined). This same input also fails
+  // isOutsideRoot (path.relative would read "../src/app.ts"), so this test
+  // cannot tell the two guards apart - only statement order decides which
+  // one fires first, and this stays green even if the realpath guard were
+  // deleted. It also leans on entry-reaches-past reporting exactly the one
+  // finding pinned by the first test in this file; a change there would
+  // silently change what "stays silent" is silencing.
   it("stays silent when root does not exist", async () => {
     const messages = await lintEntryFixture("entry-reaches-past", {
       root: "does-not-exist",
@@ -360,5 +395,24 @@ describe("entry rule", () => {
       root: "src",
     });
     expect(messages).toEqual([]);
+  });
+
+  // Mirrors robustness.test.ts's "linted file is not on disk" case for
+  // ownership: --stdin-filename, a processor, or a file deleted mid-run all
+  // hand the rule a filename ESLint parsed but that safeRealpath cannot
+  // resolve. realFilename is undefined, so create bails at the same guard
+  // exercised above by the missing-root case - together the two tests cover
+  // both disjuncts of `realRootDir === undefined || realFilename === undefined`.
+  it("stays silent when the linted file is not on disk", async () => {
+    const cwd = path.join(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "fixtures/entry-reaches-past",
+    );
+    const results = await makeESLint(cwd, { root: "src" }, {
+      rule: "entry",
+    }).lintText('import { helper } from "./Feature/helper";\n', {
+      filePath: path.join(cwd, "src/ghost.ts"),
+    });
+    expect(collectRuleMessages(cwd, results, "entry")).toEqual([]);
   });
 });
