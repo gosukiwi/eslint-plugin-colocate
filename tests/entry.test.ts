@@ -80,4 +80,37 @@ describe("entry rule", () => {
     });
     expect(messages).toEqual([]);
   });
+
+  // Nested doors count as doors. Entering Outer at Inner's entry is legal, so
+  // only the reach past every door is reported - and it names Inner, the
+  // innermost gate, because that is the one-edit fix.
+  it("allows a child's door and names the innermost gate", async () => {
+    const messages = await lintEntryFixture("entry-nested-doors", {
+      root: "src",
+    });
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 2,
+        message:
+          "'Outer/Inner/deep.ts' is inside module 'Outer/Inner'; import it through 'Outer/Inner/Inner.ts', or move it out of 'Outer/Inner' if it is not part of it.",
+      },
+    ]);
+  });
+
+  it("names the index when a directory has two doors", async () => {
+    const messages = await lintEntryFixture("entry-two-doors", {
+      root: "src",
+    });
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/index.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
 });
