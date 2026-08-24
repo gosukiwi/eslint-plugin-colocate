@@ -57,4 +57,27 @@ describe("entry rule", () => {
   it("offers no autofix", () => {
     expect(plugin.rules.entry.meta?.fixable).toBeUndefined();
   });
+
+  it("allows a bare directory specifier that resolves to the index", async () => {
+    const messages = await lintEntryFixture("entry-index-door-ok", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  it("allows a module's own files to import each other", async () => {
+    const messages = await lintEntryFixture("entry-importer-inside-ok", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // The ratchet: a folder with no entry is not a gate, so nothing is demanded
+  // of it. Adding a door later is what turns the boundary on.
+  it("says nothing about a directory with no entry file", async () => {
+    const messages = await lintEntryFixture("entry-no-door-ok", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
 });
