@@ -45,6 +45,27 @@ describe("getGates", () => {
     const graph = graphOf(at("tabs", "One.ts"), at("tabs", "Two.ts"));
     expect(getGates(graph).has(at("tabs"))).toBe(false);
   });
+
+  it("memoises the map per graph", () => {
+    const graph = graphOf(at("Feature", "Feature.ts"));
+    expect(getGates(graph)).toBe(getGates(graph));
+  });
+
+  // graphOf sorts, so a directory-named file always precedes "index" - this
+  // exercises the reverse, where index sorts first, to prove index wins either
+  // way rather than only when it happens to come last.
+  it("prefers index over a directory-named sibling even when index sorts first", () => {
+    const graph = graphOf(at("zed", "index.ts"), at("zed", "zed.ts"));
+    expect(getGates(graph).get(at("zed"))).toBe(at("zed", "index.ts"));
+  });
+
+  // Two index spellings mid-migration: both are legal targets, so this pins
+  // the message-wording choice (first in sorted order) rather than asserting
+  // it is somehow the "correct" one.
+  it("picks the first index spelling in sorted order when both exist", () => {
+    const graph = graphOf(at("Feature", "index.ts"), at("Feature", "index.tsx"));
+    expect(getGates(graph).get(at("Feature"))).toBe(at("Feature", "index.ts"));
+  });
 });
 
 describe("findCrossedGate", () => {

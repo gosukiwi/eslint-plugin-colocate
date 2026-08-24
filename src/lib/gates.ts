@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Graph } from "./graph.js";
 
-const gatesByGraph = new WeakMap<Graph, Map<string, string>>();
+const gatesByGraph = new WeakMap<Graph, ReadonlyMap<string, string>>();
 
 /**
  * Structural on purpose. The ownership model only treats an `index` as an entry
@@ -16,12 +16,14 @@ export function isEntryFile(filePath: string): boolean {
 }
 
 /**
- * Every gated directory mapped to the entry that names it. `index` wins when a
- * directory holds both spellings: it is the door that makes the bare directory
- * specifier resolve, so it is the shorter fix to suggest, and picking it is a
- * stable tiebreak rather than a filesystem-order accident.
+ * Every gated directory mapped to the entry that names it. `index` wins over a
+ * directory-named sibling regardless of which the walk sees first: it is the
+ * door that makes the bare directory specifier resolve, so it is the shorter
+ * fix to suggest. Between two `index` spellings (a migration in progress) the
+ * first one in the sorted `graph.files` wins - a real ordering artefact, not a
+ * meaningful choice between them.
  */
-export function getGates(graph: Graph): Map<string, string> {
+export function getGates(graph: Graph): ReadonlyMap<string, string> {
   const cached = gatesByGraph.get(graph);
   if (cached !== undefined) {
     return cached;
@@ -34,7 +36,11 @@ export function getGates(graph: Graph): Map<string, string> {
     }
     const dir = path.dirname(file);
     const isIndex = path.basename(file, path.extname(file)) === "index";
-    if (!gates.has(dir) || isIndex) {
+    const existing = gates.get(dir);
+    const existingIsIndex =
+      existing !== undefined &&
+      path.basename(existing, path.extname(existing)) === "index";
+    if (existing === undefined || (isIndex && !existingIsIndex)) {
       gates.set(dir, file);
     }
   }
@@ -43,8 +49,16 @@ export function getGates(graph: Graph): Map<string, string> {
   return gates;
 }
 
+// Duplicated rather than imported from owners.ts: sharing it would make the
+// access model depend on the ownership model for a one-line predicate, and
+// drag typescript/minimatch into this file for nothing.
 function isInsideDir(filePath: string, dir: string): boolean {
   return filePath.startsWith(dir + path.sep);
+}
+
+export interface CrossedGate {
+  dir: string;
+  entry: string;
 }
 
 /**
@@ -55,13 +69,20 @@ function isInsideDir(filePath: string, dir: string): boolean {
  * always nests inside a shallower one, so an importer inside the deeper gate is
  * inside the shallower one too. The first directory that both gates the target
  * and excludes the importer is therefore the innermost such gate.
+ *
+ * Precondition: `target`, `importer`, and `rootDir` must already be in the
+ * graph's own casing. `importer` and `rootDir` always are (they come from
+ * ESLint/config paths, realpath'd). `target` is not, straight out of
+ * `resolveSpecifier`, on a case-insensitive disk - the compiler hands back
+ * whatever casing the specifier text used, which matches no gate key. Pass it
+ * through `canonicalGraphPath` first.
  */
 export function findCrossedGate(
   target: string,
   importer: string,
   graph: Graph,
   rootDir: string,
-): { dir: string; entry: string } | undefined {
+): CrossedGate | undefined {
   // Checked against the file itself, not against the gate map: a directory with
   // both doors maps only to its index, and `Dir/Dir.ts` is still a legal target.
   if (isEntryFile(target)) {

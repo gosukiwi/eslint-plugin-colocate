@@ -348,6 +348,35 @@ export interface ResolutionSettings {
 // along with whatever graph object is current.
 const settingsByGraph = new WeakMap<Graph, ResolutionSettings>();
 
+// Populated from the same map buildGraphWithConfigs computes to recover
+// resolveSpecifier's edges (see there); kept here too so anything downstream of
+// resolution, not just edge-building, can ask for a path in the graph's own
+// casing. Absent for a graph buildGraphWithConfigs never built (case-sensitive
+// disks never populate it at all), which is why the accessor recomputes on
+// demand rather than assuming a hit.
+const filesByLowerCaseByGraph = new WeakMap<Graph, Map<string, string>>();
+
+/**
+ * The graph's own casing for a resolved path, or the path unchanged when the
+ * filesystem is case-sensitive. `fs.realpathSync` (what `safeRealpath` uses)
+ * does not fold case on macOS - only the `.native` variant does - so a path
+ * fresh out of `resolveSpecifier` carries whatever casing the specifier text
+ * used, not the casing the file actually has on disk. Callers that key off a
+ * file's directory (gates, ownership) need the latter or they miss real
+ * boundaries and invent fake ones.
+ */
+export function canonicalGraphPath(graph: Graph, filePath: string): string {
+  if (ts.sys.useCaseSensitiveFileNames) {
+    return filePath;
+  }
+  let byLowerCase = filesByLowerCaseByGraph.get(graph);
+  if (byLowerCase === undefined) {
+    byLowerCase = new Map(graph.files.map((file) => [file.toLowerCase(), file]));
+    filesByLowerCaseByGraph.set(graph, byLowerCase);
+  }
+  return byLowerCase.get(filePath.toLowerCase()) ?? filePath;
+}
+
 // Total, not a bare lookup: resolveSpecifier's settings parameter is optional
 // and silently falls back to a lenient default with no project `paths`, so a
 // caller that tolerated `undefined` here would resolve every aliased import
@@ -649,6 +678,12 @@ function buildGraphWithConfigs(
 
   const graph: Graph = { importers, files };
   settingsByGraph.set(graph, settings);
+  // Reuses the map just built for edge recovery instead of letting
+  // canonicalGraphPath recompute an identical one from graph.files on first
+  // call - the graph and its lowercase index are known equal here for free.
+  if (filesByLowerCase !== undefined) {
+    filesByLowerCaseByGraph.set(graph, filesByLowerCase);
+  }
   return { graph, configPaths: settings.configPaths };
 }
 

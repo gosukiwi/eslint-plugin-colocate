@@ -2,8 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
+  canonicalGraphPath,
   getGraph,
   getGraphResolutionSettings,
   isTestFile,
@@ -167,6 +169,85 @@ describe("getGraph", () => {
 
     expect(graph.importers.get(bPath)).toEqual([aPath]);
     expect(graph.files).toEqual([aPath, bPath]);
+  });
+});
+
+describe("canonicalGraphPath", () => {
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "recovers the graph's own casing for a path resolved through wrong-case specifier text",
+    () => {
+      // Reproduces the exact defect this exists to close: fs.realpathSync (what
+      // safeRealpath/resolveSpecifier use) does not fold case on macOS - only
+      // its .native variant does - so resolving "./FEATURE" against a file
+      // actually named Feature.ts hands back .../FEATURE/FEATURE.ts, not the
+      // path the graph itself uses as a gate/owner key.
+      const base = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), "colocate-canonical-")),
+      );
+      const srcDir = path.join(base, "src");
+      const featureDir = path.join(srcDir, "Feature");
+      fs.mkdirSync(featureDir, { recursive: true });
+      const entryPath = path.join(featureDir, "Feature.ts");
+      const helperPath = path.join(featureDir, "helper.ts");
+      fs.writeFileSync(entryPath, "export const x = 1;\n");
+      fs.writeFileSync(helperPath, "export const h = 1;\n");
+      fs.writeFileSync(
+        path.join(srcDir, "app.ts"),
+        'import "./Feature/FEATURE";\n',
+      );
+
+      const graph = getGraph(srcDir, [], entryPath);
+      const settings = getGraphResolutionSettings(graph, srcDir);
+
+      // The false positive: resolving the wrong-case specifier that actually
+      // lands on the door.
+      const wrongCaseEntry = resolveSpecifier(
+        "./Feature/FEATURE",
+        srcDir,
+        settings,
+      );
+      expect(wrongCaseEntry).toBeDefined();
+      expect(wrongCaseEntry).not.toBe(entryPath);
+      expect(canonicalGraphPath(graph, wrongCaseEntry as string)).toBe(
+        entryPath,
+      );
+
+      // The false negative: resolving a wrong-case directory segment on a
+      // genuine crossing must still land on the graph's real helper path, or
+      // a gate lookup keyed on its directory silently misses.
+      const wrongCaseHelper = resolveSpecifier(
+        "./feature/helper",
+        srcDir,
+        settings,
+      );
+      expect(wrongCaseHelper).toBeDefined();
+      expect(wrongCaseHelper).not.toBe(helperPath);
+      expect(canonicalGraphPath(graph, wrongCaseHelper as string)).toBe(
+        helperPath,
+      );
+
+      fs.rmSync(base, { recursive: true, force: true });
+    },
+  );
+
+  it.skipIf(!ts.sys.useCaseSensitiveFileNames)(
+    "returns the path unchanged on a case-sensitive filesystem",
+    () => {
+      const graph = {
+        files: ["/root/Feature/Feature.ts"],
+        importers: new Map(),
+      };
+      expect(canonicalGraphPath(graph, "/root/Feature/FEATURE.ts")).toBe(
+        "/root/Feature/FEATURE.ts",
+      );
+    },
+  );
+
+  it("returns the path unchanged when it matches no file in the graph", () => {
+    const graph = { files: ["/root/Feature/Feature.ts"], importers: new Map() };
+    expect(canonicalGraphPath(graph, "/root/Nowhere/Nowhere.ts")).toBe(
+      "/root/Nowhere/Nowhere.ts",
+    );
   });
 });
 
