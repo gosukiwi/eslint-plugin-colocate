@@ -21,7 +21,10 @@ export interface FixtureMessage {
 export function makeESLint(
   cwd: string,
   ruleOptions?: Record<string, unknown>,
-  options?: { parser?: "typescript" | "espree"; rule?: RuleName },
+  options?: {
+    parser?: "typescript" | "espree";
+    rule?: RuleName | RuleName[];
+  },
 ): ESLint {
   const languageOptions =
     options?.parser === "espree"
@@ -36,7 +39,20 @@ export function makeESLint(
             ecmaVersion: 2022,
           },
         };
-  const ruleName = options?.rule ?? "ownership";
+  // Accepts several rule names so a cache test can enable both rules at once -
+  // that is the configuration that exposed the getGraph double-call bug, and
+  // no fixture-driven assertion needs more than one rule at a time.
+  const ruleNames =
+    options?.rule === undefined
+      ? (["ownership"] as const)
+      : Array.isArray(options.rule)
+        ? options.rule
+        : [options.rule];
+
+  const rules: Record<string, [string, Record<string, unknown>]> = {};
+  for (const ruleName of ruleNames) {
+    rules[`colocate/${ruleName}`] = ["error", ruleOptions ?? {}];
+  }
 
   return new ESLint({
     cwd,
@@ -47,9 +63,7 @@ export function makeESLint(
         plugins: {
           colocate: plugin,
         },
-        rules: {
-          [`colocate/${ruleName}`]: ["error", ruleOptions ?? {}],
-        },
+        rules,
         languageOptions,
       },
     ],

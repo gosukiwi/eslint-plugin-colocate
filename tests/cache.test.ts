@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectMessages, makeESLint } from "./helpers/lint-fixture.js";
 
 const created: string[] = [];
@@ -100,5 +100,67 @@ describe("graph invalidation within one process", () => {
     });
 
     expect(await lint(dir, ["src"], options)).toEqual([]);
+  });
+
+  // ownership and entry both call getGraph for the same file within one lint
+  // pass. getGraph's pass-boundary check used to key only on the linted file
+  // path, so this second call looked exactly like a new pass landing on the
+  // same file and re-validated every tracked file by stat'ing it - once per
+  // linted file, per lint pass, an O(files^2) statSync cost that only showed
+  // up with both rules on. Measured on this fixture shape: 20 files fixed is
+  // ~420 statSync calls (linear, ~21/file); the O(files^2) version was ~820
+  // (~41/file) and grows relative to file count, so the bound below sits
+  // between the two rather than pinning an exact figure that would be brittle
+  // to unrelated stat-count changes elsewhere in the walk.
+  it("does not re-validate the whole tracked set once per rule when several rules share a lint pass", async () => {
+    const fileCount = 20;
+    const files: Record<string, string> = {};
+    for (let i = 0; i < fileCount; i += 1) {
+      files[`src/file${i}.ts`] = `export const v${i} = ${i};\n`;
+    }
+    const dir = project(files);
+
+    const statSpy = vi.spyOn(fs, "statSync");
+    try {
+      const results = await makeESLint(
+        dir,
+        { root: "src" },
+        { rule: ["ownership", "entry"] },
+      ).lintFiles(["src"]);
+      expect(collectMessages(dir, results)).toEqual([]);
+      expect(statSpy.mock.calls.length).toBeLessThan(fileCount * 25);
+    } finally {
+      statSpy.mockRestore();
+    }
+  });
+
+  // The fix for the above (a visitToken carried on the cache entry) must not
+  // regress the case it looks structurally identical to: a genuinely new pass
+  // that happens to start on the very file the previous pass ended on -
+  // exactly what a watch-mode re-lint of a single open file does. Each
+  // separate lintFiles() call gets its own ESLint SourceCode object even for
+  // an unchanged file, so the token differs across passes and this still
+  // revalidates.
+  it("still revalidates when a new pass starts on the same single file the previous pass ended on", async () => {
+    const dir = project(APP);
+    const options = { root: "src" };
+    const rules = { rule: ["ownership", "entry"] as const };
+
+    const first = await makeESLint(dir, options, rules).lintFiles([
+      "src/pages/helper.ts",
+    ]);
+    expect(collectMessages(dir, first)).toEqual([]);
+
+    write(dir, {
+      "src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
+    });
+
+    const second = await makeESLint(dir, options, rules).lintFiles([
+      "src/pages/helper.ts",
+    ]);
+    expect(collectMessages(dir, second)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
   });
 });

@@ -174,7 +174,15 @@ const rule: Rule.RuleModule = {
         }
 
         const realDir = path.dirname(realFilename);
-        const graph = getGraph(rootDir, ignore, realFilename);
+        // context.sourceCode lets this share one graph build per file with
+        // colocate/entry when both are enabled - see the comment on
+        // CachedGraph.lastToken in graph.ts.
+        const graph = getGraph(
+          rootDir,
+          ignore,
+          realFilename,
+          context.sourceCode,
+        );
         const layerDirs = resolveLayerDirectories(
           graph,
           cwd,

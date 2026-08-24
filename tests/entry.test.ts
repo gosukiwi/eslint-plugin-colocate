@@ -22,11 +22,22 @@ describe("entry rule", () => {
   });
 
   it("allows an import that lands on the entry", async () => {
-    const messages = await lintEntryFixture("entry-through-door-ok");
+    const messages = await lintEntryFixture("entry-through-door-ok", {
+      root: "src",
+    });
     expect(messages).toEqual([]);
   });
 
-  it("takes only root and ignore, and rejects unknown options", () => {
+  // The schema itself is asserted directly below; this exercises the
+  // behaviour that schema enables - ESLint actually rejecting an unknown
+  // option - the way ownership.test.ts does for the ownership rule.
+  it("rejects unknown options", async () => {
+    await expect(
+      lintEntryFixture("entry-through-door-ok", { roots: "src" }),
+    ).rejects.toThrow();
+  });
+
+  it("takes only root and ignore", () => {
     const schema = plugin.rules.entry.meta?.schema;
     const first = Array.isArray(schema)
       ? (schema[0] as {

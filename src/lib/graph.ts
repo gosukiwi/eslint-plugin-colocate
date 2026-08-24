@@ -708,6 +708,21 @@ interface CachedGraph {
   // Files linted since the last full validation, used to detect the start of a
   // new lint pass.
   visited: Set<string>;
+  // The (file, visitToken) of the previous call, used to recognise a second
+  // rule asking about the same parse rather than a new pass landing on the
+  // same file. `currentFile` alone cannot tell these apart: with two rules
+  // enabled, ESLint runs both against one file before moving to the next, so
+  // getGraph is asked twice per file, and the second ask looks exactly like
+  // "this file again" to a visited-set check. A repeat of the same *file
+  // path* is not reliable either - a later pass can legitimately start over
+  // on the very file the previous pass ended on. `visitToken` (callers pass
+  // `context.sourceCode`) resolves the ambiguity: ESLint hands every rule the
+  // same SourceCode object for one parse and a new one for every subsequent
+  // parse, so identical tokens can only mean "still inside that one parse."
+  // A caller that omits the token (direct getGraph calls in tests) gets the
+  // conservative old behaviour: every repeat of a file counts as a new pass.
+  lastFile: string | undefined;
+  lastToken: unknown;
   validatedAt: number;
   // Whole-second mtimes mean the filesystem (HFS+, some network mounts) cannot
   // distinguish two writes inside the same second, so a same-size edit would
@@ -838,15 +853,26 @@ function needsRebuild(
   currentFile: string,
   rootDir: string,
   ignoreGlobs: string[],
+  visitToken: unknown,
 ): boolean {
   // Scanning every file for every linted file is O(files^2) stats per run, so
-  // validate once per pass instead: seeing a file again means a new pass began.
-  // The elapsed-time bound covers passes that never revisit a file.
+  // validate once per pass instead: seeing a file again means a new pass
+  // began. The elapsed-time bound covers passes that never revisit a file. A
+  // repeat of the immediately preceding file is excluded only when the
+  // caller's token proves it is the very same parse (two rules sharing one
+  // file) - a bare file-path match is not enough, because a later, genuine
+  // pass can legitimately start over on the very file the previous pass ended
+  // on. Without a token, every repeat counts as a new pass, same as before
+  // this parameter existed.
   const now = Date.now();
-  if (
-    cached.visited.has(currentFile) ||
-    now - cached.validatedAt >= REVALIDATE_AFTER_MS
-  ) {
+  const sameVisit =
+    visitToken !== undefined &&
+    cached.lastFile === currentFile &&
+    cached.lastToken === visitToken;
+  const newPass =
+    (cached.visited.has(currentFile) && !sameVisit) ||
+    now - cached.validatedAt >= REVALIDATE_AFTER_MS;
+  if (newPass) {
     cached.visited.clear();
     cached.validatedAt = now;
     if (trackedFilesChanged(cached)) {
@@ -854,6 +880,8 @@ function needsRebuild(
     }
   }
   cached.visited.add(currentFile);
+  cached.lastFile = currentFile;
+  cached.lastToken = visitToken;
 
   if (cached.stamps.has(currentFile)) {
     return false;
@@ -861,17 +889,25 @@ function needsRebuild(
   return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
 }
 
+// `visitToken` lets two rules asking about the same file in the same pass
+// avoid tripping the pass-boundary check in needsRebuild - pass
+// `context.sourceCode`, which ESLint hands to every rule as the identical
+// object for one parse and as a new object for every subsequent parse (see
+// runRules in ESLint's linter, which builds one shared rule-context base per
+// file and extends it per rule). Omitted by callers that only ever ask once
+// per file (tests, a single-rule setup).
 export function getGraph(
   rootDir: string,
   ignoreGlobs: string[],
   currentFile: string,
+  visitToken?: unknown,
 ): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
   const cached = cache.get(key);
   if (
     cached !== undefined &&
     !tsconfigNeedsRebuild(cached, rootDir) &&
-    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
+    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs, visitToken)
   ) {
     return cached.graph;
   }
@@ -883,6 +919,8 @@ export function getGraph(
     stamps,
     configs: stampConfigs(configPaths),
     visited: new Set([currentFile]),
+    lastFile: currentFile,
+    lastToken: visitToken,
     validatedAt: Date.now(),
     coarseTimestamps: hasCoarseTimestamps(stamps),
     builtAt: Date.now(),

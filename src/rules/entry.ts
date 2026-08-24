@@ -12,7 +12,6 @@ import {
   isSourceFile,
   isTestFile,
   resolveSpecifier,
-  type Graph,
 } from "../lib/graph.js";
 import { resolveRootDir } from "../lib/root.js";
 
@@ -21,7 +20,7 @@ interface RuleOptions {
   ignore?: string[];
 }
 
-function toPosix(from: string, to: string): string {
+function relativePosix(from: string, to: string): string {
   return path.relative(from, to).split(path.sep).join("/");
 }
 
@@ -76,20 +75,17 @@ const rule: Rule.RuleModule = {
     }
 
     const fromDir = path.dirname(realFilename);
-    // One graph per linted file, fetched on the first specifier rather than up
-    // front so a file with no imports does not pay for it.
-    let graph: Graph | undefined;
+    // Fetched eagerly, not on the first specifier: getGraph is a cache lookup
+    // even on a hit, so laziness only ever saved work for an import-free file,
+    // while costing every caller a mutable local and a WeakMap lookup per
+    // specifier. Passing context.sourceCode lets ownership and entry share one
+    // graph build per file - see the comment on CachedGraph.lastToken in
+    // graph.ts for why a bare file-path repeat cannot be trusted for that.
+    const graph = getGraph(rootDir, ignore, realFilename, context.sourceCode);
+    const settings = getGraphResolutionSettings(graph, rootDir);
 
-    const check = (specifier: string, node: ESTree.Node): void => {
-      graph ??= getGraph(rootDir, ignore, realFilename);
-      // Same rootDir passed to getGraph, so the settings are the ones this
-      // graph resolved with. The accessor is total: on a miss it computes and
-      // memoises, so an aliased specifier can never silently fail to resolve.
-      const resolved = resolveSpecifier(
-        specifier,
-        fromDir,
-        getGraphResolutionSettings(graph, rootDir),
-      );
+    const reportIfPastEntry = (specifier: string, node: ESTree.Node): void => {
+      const resolved = resolveSpecifier(specifier, fromDir, settings);
       if (resolved === undefined) {
         return;
       }
@@ -117,9 +113,9 @@ const rule: Rule.RuleModule = {
         node,
         messageId: "reachesPastEntry",
         data: {
-          target: toPosix(realRootDir, target),
-          module: toPosix(realRootDir, crossed.dir),
-          entry: toPosix(realRootDir, crossed.entry),
+          target: relativePosix(realRootDir, target),
+          module: relativePosix(realRootDir, crossed.dir),
+          entry: relativePosix(realRootDir, crossed.entry),
         },
       });
     };
@@ -133,7 +129,7 @@ const rule: Rule.RuleModule = {
       ) {
         return;
       }
-      check(source.value, source);
+      reportIfPastEntry(source.value, source);
     };
 
     return {
