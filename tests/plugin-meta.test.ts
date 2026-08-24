@@ -31,6 +31,21 @@ describe("plugin surface", () => {
       "singletonFolder",
     ]);
   });
+
+  it("exposes the entry rule with documentation metadata", () => {
+    const rule = plugin.rules.entry;
+    expect(rule.meta?.type).toBe("problem");
+    expect(rule.meta?.docs?.url).toMatch(/^https:\/\//);
+    expect(Object.keys(rule.meta?.messages ?? {}).sort()).toEqual([
+      "reachesPastEntry",
+    ]);
+  });
+
+  // Adding a rule to a shipped preset would make every future rule a breaking
+  // change, so the plugin deliberately exports none.
+  it("ships no configs", () => {
+    expect((plugin as { configs?: unknown }).configs).toBeUndefined();
+  });
 });
 
 describe("stampIsAmbiguous", () => {

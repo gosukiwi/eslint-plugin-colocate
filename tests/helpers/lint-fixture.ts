@@ -142,3 +142,11 @@ export async function lintFixtureRule(
   }).lintFiles(targets);
   return collectRuleMessages(cwd, results, rule);
 }
+
+export async function lintEntryFixture(
+  name: string,
+  ruleOptions?: Record<string, unknown>,
+  targets: string[] = ["src"],
+): Promise<FixtureMessage[]> {
+  return lintFixtureRule(name, "entry", ruleOptions, targets);
+}
