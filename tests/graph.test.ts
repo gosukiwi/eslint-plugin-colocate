@@ -170,6 +170,23 @@ describe("getGraph", () => {
     expect(graph.importers.get(bPath)).toEqual([aPath]);
     expect(graph.files).toEqual([aPath, bPath]);
   });
+
+  // The entry rule leans on a bare directory specifier resolving through to
+  // its index - if resolution ever stopped doing that, the specifier would
+  // resolve to undefined and every rule built on it would silently stop
+  // seeing the import, not report it wrong.
+  it("resolves a bare directory specifier to its index file", () => {
+    const base = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "colocate-dir-index-")),
+    );
+    const srcDir = path.join(base, "src");
+    const featureDir = path.join(srcDir, "Feature");
+    fs.mkdirSync(featureDir, { recursive: true });
+    const indexPath = path.join(featureDir, "index.ts");
+    fs.writeFileSync(indexPath, "export const x = 1;\n");
+
+    expect(resolveSpecifier("./Feature", srcDir)).toBe(indexPath);
+  });
 });
 
 describe("canonicalGraphPath", () => {

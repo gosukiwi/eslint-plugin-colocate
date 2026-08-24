@@ -81,9 +81,10 @@ describe("entry rule", () => {
     expect(messages).toEqual([]);
   });
 
-  // Nested doors count as doors. Entering Outer at Inner's entry is legal, so
-  // only the reach past every door is reported - and it names Inner, the
-  // innermost gate, because that is the one-edit fix.
+  // Landing on any entry file is legal, including a nested module's own -
+  // you need not enter through the outermost door. Only the reach past
+  // every door is reported, and it names Inner, the innermost gate, because
+  // that is the one-edit fix.
   it("allows a child's door and names the innermost gate", async () => {
     const messages = await lintEntryFixture("entry-nested-doors", {
       root: "src",
