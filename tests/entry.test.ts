@@ -156,4 +156,20 @@ describe("entry rule", () => {
       },
     ]);
   });
+
+  it("reports dynamic import and import-equals", async () => {
+    const messages = await lintEntryFixture("entry-dynamic", { root: "src" });
+    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
+      { file: "src/app.ts", line: 1 },
+      { file: "src/app.ts", line: 4 },
+    ]);
+  });
+
+  it("ignores a require shadowed by a parameter", async () => {
+    const messages = await lintEntryFixture("entry-require", { root: "src" });
+    // Only the createRequire-bound call on line 4 is a real require.
+    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
+      { file: "src/app.ts", line: 4 },
+    ]);
+  });
 });

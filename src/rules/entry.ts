@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Rule } from "eslint";
+import type { Rule, Scope } from "eslint";
 import type * as ESTree from "estree";
 import { safeRealpath } from "../lib/fs-safe.js";
 import { findCrossedGate } from "../lib/gates.js";
@@ -24,6 +24,34 @@ interface RuleOptions {
 
 function relativePosix(from: string, to: string): string {
   return path.relative(from, to).split(path.sep).join("/");
+}
+
+// Mirrors graph.ts: a `require` bound in an enclosing scope is not the CJS one,
+// so it is not an edge - unless it was bound by createRequire, which is.
+function requireIsShadowed(
+  sourceCode: { getScope: (node: ESTree.Node) => Scope.Scope },
+  node: ESTree.Node,
+): boolean {
+  let scope: Scope.Scope | null = sourceCode.getScope(node);
+  while (scope !== null) {
+    const variable = scope.variables.find((entry) => entry.name === "require");
+    if (variable !== undefined) {
+      return !variable.defs.some((def) => {
+        const declarator = def.node as { type: string; init?: ESTree.Node | null };
+        if (declarator.type !== "VariableDeclarator") {
+          return false;
+        }
+        const init = declarator.init;
+        return (
+          init?.type === "CallExpression" &&
+          init.callee.type === "Identifier" &&
+          init.callee.name === "createRequire"
+        );
+      });
+    }
+    scope = scope.upper;
+  }
+  return false;
 }
 
 const rule: Rule.RuleModule = {
@@ -156,6 +184,33 @@ const rule: Rule.RuleModule = {
       },
       ExportAllDeclaration(node) {
         checkSource(node.source);
+      },
+      ImportExpression(node) {
+        checkSource((node as unknown as { source: ESTree.Node }).source);
+      },
+      // Not an ESTree node, so it arrives untyped from the TypeScript parser.
+      TSImportEqualsDeclaration(node: ESTree.Node) {
+        const reference = (
+          node as unknown as {
+            moduleReference: { type: string; expression?: ESTree.Node };
+          }
+        ).moduleReference;
+        if (reference.type === "TSExternalModuleReference") {
+          checkSource(reference.expression);
+        }
+      },
+      CallExpression(node) {
+        if (
+          node.callee.type !== "Identifier" ||
+          node.callee.name !== "require" ||
+          node.arguments.length !== 1
+        ) {
+          return;
+        }
+        if (requireIsShadowed(context.sourceCode, node)) {
+          return;
+        }
+        checkSource(node.arguments[0] as ESTree.Node);
       },
     };
   },
