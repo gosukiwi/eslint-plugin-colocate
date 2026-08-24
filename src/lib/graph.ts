@@ -875,15 +875,15 @@ function needsRebuild(
   // Scanning every file for every linted file is O(files^2) stats per run, so
   // validate once per pass instead: seeing a file again means a new pass
   // began. The elapsed-time bound covers passes that never revisit a file.
-  // The proven-same-parse case (matching file and visitToken) is handled by
-  // the caller before this function even runs tsconfigNeedsRebuild, so by the
-  // time we get here any repeat of the immediately preceding file is a
-  // genuine new pass, exactly as when this function had no token parameter.
+  // getGraph returns early, without calling this function, whenever
+  // visitToken proves the caller is asking about currentFile again within
+  // the same parse - so by the time we get here, any repeat of currentFile
+  // reflects a genuine new pass, not a second rule re-checking the same file.
   const now = Date.now();
-  const newPass =
+  if (
     cached.visited.has(currentFile) ||
-    now - cached.validatedAt >= REVALIDATE_AFTER_MS;
-  if (newPass) {
+    now - cached.validatedAt >= REVALIDATE_AFTER_MS
+  ) {
     cached.visited.clear();
     cached.validatedAt = now;
     if (trackedFilesChanged(cached)) {

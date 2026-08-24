@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalGraphPath,
   getGraph,
@@ -11,6 +11,23 @@ import {
   isTestFile,
   resolveSpecifier,
 } from "../src/lib/graph.js";
+
+const created: string[] = [];
+
+afterEach(() => {
+  while (created.length > 0) {
+    const dir = created.pop();
+    if (dir !== undefined) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+function tempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  created.push(dir);
+  return dir;
+}
 
 const fixtureRoot = path.join(
   fileURLToPath(new URL(".", import.meta.url)),
@@ -176,9 +193,7 @@ describe("getGraph", () => {
   // resolve to undefined and every rule built on it would silently stop
   // seeing the import, not report it wrong.
   it("resolves a bare directory specifier to its index file", () => {
-    const base = fs.realpathSync(
-      fs.mkdtempSync(path.join(os.tmpdir(), "colocate-dir-index-")),
-    );
+    const base = fs.realpathSync(tempDir("colocate-dir-index-"));
     const srcDir = path.join(base, "src");
     const featureDir = path.join(srcDir, "Feature");
     fs.mkdirSync(featureDir, { recursive: true });
@@ -198,9 +213,7 @@ describe("canonicalGraphPath", () => {
       // its .native variant does - so resolving "./FEATURE" against a file
       // actually named Feature.ts hands back .../FEATURE/FEATURE.ts, not the
       // path the graph itself uses as a gate/owner key.
-      const base = fs.realpathSync(
-        fs.mkdtempSync(path.join(os.tmpdir(), "colocate-canonical-")),
-      );
+      const base = fs.realpathSync(tempDir("colocate-canonical-"));
       const srcDir = path.join(base, "src");
       const featureDir = path.join(srcDir, "Feature");
       fs.mkdirSync(featureDir, { recursive: true });
@@ -242,8 +255,6 @@ describe("canonicalGraphPath", () => {
       expect(canonicalGraphPath(graph, wrongCaseHelper as string)).toBe(
         helperPath,
       );
-
-      fs.rmSync(base, { recursive: true, force: true });
     },
   );
 
@@ -270,9 +281,7 @@ describe("canonicalGraphPath", () => {
 
 describe("getGraphResolutionSettings", () => {
   it("resolves an aliased specifier the way the graph did, and pins the degraded fallback", () => {
-    const base = fs.realpathSync(
-      fs.mkdtempSync(path.join(os.tmpdir(), "colocate-settings-")),
-    );
+    const base = fs.realpathSync(tempDir("colocate-settings-"));
     const srcDir = path.join(base, "src");
     fs.mkdirSync(srcDir);
     fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
@@ -301,9 +310,7 @@ describe("getGraphResolutionSettings", () => {
   });
 
   it("computes fresh settings for a graph it never built", () => {
-    const base = fs.mkdtempSync(
-      path.join(os.tmpdir(), "colocate-settings-fresh-"),
-    );
+    const base = tempDir("colocate-settings-fresh-");
     const srcDir = path.join(base, "src");
     fs.mkdirSync(srcDir);
     fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
