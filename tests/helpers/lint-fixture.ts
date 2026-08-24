@@ -161,6 +161,7 @@ export async function lintEntryFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
   targets: string[] = ["src"],
+  options?: { parser?: "typescript" | "espree" },
 ): Promise<FixtureMessage[]> {
-  return lintFixtureRule(name, "entry", ruleOptions, targets);
+  return lintFixtureRule(name, "entry", ruleOptions, targets, options);
 }

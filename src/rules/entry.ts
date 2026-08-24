@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Rule, Scope } from "eslint";
+import type { Rule, Scope, SourceCode } from "eslint";
 import type * as ESTree from "estree";
 import { safeRealpath } from "../lib/fs-safe.js";
 import { findCrossedGate } from "../lib/gates.js";
@@ -26,26 +26,38 @@ function relativePosix(from: string, to: string): string {
   return path.relative(from, to).split(path.sep).join("/");
 }
 
+// Mirrors graph.ts's isCreateRequireCall: accepts both `createRequire(...)`
+// and `mod.createRequire(...)`.
+function isCreateRequireCall(init: ESTree.Node | null | undefined): boolean {
+  if (init === null || init === undefined || init.type !== "CallExpression") {
+    return false;
+  }
+  const callee = init.callee;
+  return (
+    (callee.type === "Identifier" && callee.name === "createRequire") ||
+    (callee.type === "MemberExpression" &&
+      callee.property.type === "Identifier" &&
+      callee.property.name === "createRequire")
+  );
+}
+
 // Mirrors graph.ts: a `require` bound in an enclosing scope is not the CJS one,
 // so it is not an edge - unless it was bound by createRequire, which is.
-function requireIsShadowed(
-  sourceCode: { getScope: (node: ESTree.Node) => Scope.Scope },
-  node: ESTree.Node,
-): boolean {
+function requireIsShadowed(sourceCode: SourceCode, node: ESTree.Node): boolean {
   let scope: Scope.Scope | null = sourceCode.getScope(node);
   while (scope !== null) {
     const variable = scope.variables.find((entry) => entry.name === "require");
-    if (variable !== undefined) {
+    // An ambient/global `require` (Node's CJS globals, a `.cjs` file's
+    // default sourceType, `globals: globals.node`) has no defs at all - it
+    // is not a local binding, so it must not be treated as shadowing the
+    // CJS one. Only a variable with an actual definition here (parameter,
+    // `const`, `function require() {}`, ...) can shadow it.
+    if (variable !== undefined && variable.defs.length > 0) {
       return !variable.defs.some((def) => {
         const declarator = def.node as { type: string; init?: ESTree.Node | null };
-        if (declarator.type !== "VariableDeclarator") {
-          return false;
-        }
-        const init = declarator.init;
         return (
-          init?.type === "CallExpression" &&
-          init.callee.type === "Identifier" &&
-          init.callee.name === "createRequire"
+          declarator.type === "VariableDeclarator" &&
+          isCreateRequireCall(declarator.init)
         );
       });
     }
@@ -186,12 +198,14 @@ const rule: Rule.RuleModule = {
         checkSource(node.source);
       },
       ImportExpression(node) {
-        checkSource((node as unknown as { source: ESTree.Node }).source);
+        checkSource(node.source);
       },
-      // Not an ESTree node, so it arrives untyped from the TypeScript parser.
-      TSImportEqualsDeclaration(node: ESTree.Node) {
+      // Not an ESTree node, so it arrives untyped from the TypeScript parser -
+      // `unknown` is honest about that, and RuleListener's index signature
+      // accepts any parameter annotation here contravariantly.
+      TSImportEqualsDeclaration(node: unknown) {
         const reference = (
-          node as unknown as {
+          node as {
             moduleReference: { type: string; expression?: ESTree.Node };
           }
         ).moduleReference;
@@ -203,6 +217,9 @@ const rule: Rule.RuleModule = {
         if (
           node.callee.type !== "Identifier" ||
           node.callee.name !== "require" ||
+          // graph.ts takes arguments[0] at any arity, so require("./x", opts)
+          // is still an edge there; narrowed to exactly one argument here
+          // deliberately, since a real CJS require never takes a second one.
           node.arguments.length !== 1
         ) {
           return;
@@ -210,7 +227,7 @@ const rule: Rule.RuleModule = {
         if (requireIsShadowed(context.sourceCode, node)) {
           return;
         }
-        checkSource(node.arguments[0] as ESTree.Node);
+        checkSource(node.arguments[0]);
       },
     };
   },

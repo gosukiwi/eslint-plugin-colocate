@@ -1,6 +1,10 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { ESLint } from "eslint";
+import tsParser from "@typescript-eslint/parser";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
-import { lintEntryFixture } from "./helpers/lint-fixture.js";
+import { collectRuleMessages, lintEntryFixture } from "./helpers/lint-fixture.js";
 
 describe("entry rule", () => {
   // src/app.ts is an entry point: nothing imports it, so the ownership model
@@ -159,17 +163,161 @@ describe("entry rule", () => {
 
   it("reports dynamic import and import-equals", async () => {
     const messages = await lintEntryFixture("entry-dynamic", { root: "src" });
-    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
-      { file: "src/app.ts", line: 1 },
-      { file: "src/app.ts", line: 4 },
+    // Full messages, not just file/line: a weaker assertion would still pass
+    // if the two visitors resolved each other's targets by mistake.
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/viaEquals.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 4,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
     ]);
   });
 
   it("ignores a require shadowed by a parameter", async () => {
     const messages = await lintEntryFixture("entry-require", { root: "src" });
     // Only the createRequire-bound call on line 4 is a real require.
-    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
-      { file: "src/app.ts", line: 4 },
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 4,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // Regression test for a bug the first pass of this rule shipped with: an
+  // ambient/global `require` (no local declaration at all, which is exactly
+  // what a `.cjs` file's default sourceType and most Node ESLint configs
+  // give you) resolves to a scope variable with `defs: []`. Treating
+  // "no defs" as "shadowed" made the whole CallExpression visitor inert on
+  // real CommonJS - the two cases below reproduce that with no override and
+  // with an explicit globals.node-style config, confirmed to fail (empty
+  // messages) before the `defs.length > 0` guard and pass after.
+  it("reports a require() call with no config override at all (.cjs default sourceType)", async () => {
+    const cwd = path.join(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "fixtures/entry-require-cjs-default",
+    );
+    const eslint = new ESLint({
+      cwd,
+      overrideConfigFile: true,
+      overrideConfig: [
+        {
+          plugins: { colocate: plugin },
+          rules: { "colocate/entry": ["error", { root: "src" }] },
+        },
+      ],
+    });
+    const results = await eslint.lintFiles(["src"]);
+    const messages = collectRuleMessages(cwd, results, "entry");
+    expect(messages).toEqual([
+      {
+        file: "src/app.cjs",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/helper.cjs' is inside module 'Feature'; import it through 'Feature/Feature.cjs', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  it("reports a require() call under an explicit require global (globals.node style)", async () => {
+    const cwd = path.join(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "fixtures/entry-require-node-globals",
+    );
+    const eslint = new ESLint({
+      cwd,
+      overrideConfigFile: true,
+      overrideConfig: [
+        {
+          files: ["**/*.{js,jsx,ts,tsx,mts,cts,mjs,cjs}"],
+          languageOptions: {
+            parser: tsParser,
+            parserOptions: { sourceType: "module", ecmaVersion: 2022 },
+            globals: { require: "readonly", module: "readonly" },
+          },
+          plugins: { colocate: plugin },
+          rules: { "colocate/entry": ["error", { root: "src" }] },
+        },
+      ],
+    });
+    const results = await eslint.lintFiles(["src/app.ts"]);
+    const messages = collectRuleMessages(cwd, results, "entry");
+    // No local `require` binding here at all - `require` resolves straight
+    // to the ambient global declared via `globals`, the near-universal Node
+    // ESLint setup (`globals: globals.node` does the same thing). That
+    // global variable has `defs: []`, which the first pass of this rule
+    // mistook for "shadowed" and so reported nothing.
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 5,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // Espree coverage for the dynamic-import and require() visitors, following
+  // the eslint-disable-ownership-js precedent: TSImportEqualsDeclaration
+  // never fires under Espree, but ImportExpression and the CallExpression
+  // require() visitor are plain ESTree/ESLint-scope machinery and must work
+  // without the TypeScript parser.
+  it("reports dynamic import and require() under Espree", async () => {
+    const messages = await lintEntryFixture(
+      "entry-dynamic-espree",
+      { root: "src" },
+      ["src"],
+      { parser: "espree" },
+    );
+    expect(messages).toEqual([
+      {
+        file: "src/app.js",
+        messageId: "reachesPastEntry",
+        line: 6,
+        message:
+          "'Feature/helper.js' is inside module 'Feature'; import it through 'Feature/Feature.js', or move it out of 'Feature' if it is not part of it.",
+      },
+      {
+        file: "src/app.js",
+        messageId: "reachesPastEntry",
+        line: 9,
+        message:
+          "'Feature/helper.js' is inside module 'Feature'; import it through 'Feature/Feature.js', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // graph.ts's isCreateRequireCall accepts a property-access callee
+  // (`mod.createRequire(...)`), not just a bare identifier import - the rule
+  // must recognise the same form or it silently misses a real CJS edge.
+  it("recognises require bound via a property-access createRequire call", async () => {
+    const messages = await lintEntryFixture(
+      "entry-require-createrequire-member",
+      { root: "src" },
+    );
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 5,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
     ]);
   });
 });
