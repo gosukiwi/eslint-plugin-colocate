@@ -257,6 +257,54 @@ function extractSpecifiers(content, fileName) {
     visit(sourceFile, false);
     return specifiers;
 }
+// Keyed on the graph object: these settings, including the TypeScript module
+// resolution cache inside them, live exactly as long as the graph they were
+// built for and die when it does. When that happens is entirely up to the
+// graph cache's own revalidation (see needsRebuild) - this map just rides
+// along with whatever graph object is current.
+const settingsByGraph = new WeakMap();
+// Populated from the same map buildGraphWithConfigs computes to recover
+// resolveSpecifier's edges (see there); kept here too so anything downstream of
+// resolution, not just edge-building, can ask for a path in the graph's own
+// casing. Absent for a graph buildGraphWithConfigs never built (case-sensitive
+// disks never populate it at all), which is why the accessor recomputes on
+// demand rather than assuming a hit.
+const filesByLowerCaseByGraph = new WeakMap();
+/**
+ * The graph's own casing for a resolved path, or the path unchanged when the
+ * filesystem is case-sensitive. `fs.realpathSync` (what `safeRealpath` uses)
+ * does not fold case on macOS - only the `.native` variant does - so a path
+ * fresh out of `resolveSpecifier` carries whatever casing the specifier text
+ * used, not the casing the file actually has on disk. Callers that key off a
+ * file's directory (gates, ownership) need the latter or they miss real
+ * boundaries and invent fake ones.
+ */
+export function canonicalGraphPath(graph, filePath) {
+    if (ts.sys.useCaseSensitiveFileNames) {
+        return filePath;
+    }
+    let byLowerCase = filesByLowerCaseByGraph.get(graph);
+    if (byLowerCase === undefined) {
+        byLowerCase = new Map(graph.files.map((file) => [file.toLowerCase(), file]));
+        filesByLowerCaseByGraph.set(graph, byLowerCase);
+    }
+    return byLowerCase.get(filePath.toLowerCase()) ?? filePath;
+}
+// Total, not a bare lookup: resolveSpecifier's settings parameter is optional
+// and silently falls back to a lenient default with no project `paths`, so a
+// caller that tolerated `undefined` here would resolve every aliased import
+// to nothing without anything looking broken. The only miss in practice is a
+// graph built from buildGraphWithConfigs' missing-root early return, which
+// has no files to resolve specifiers for anyway, so recomputing here is safe.
+export function getGraphResolutionSettings(graph, rootDir) {
+    const cached = settingsByGraph.get(graph);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const settings = createResolutionSettings(safeRealpath(rootDir) ?? rootDir);
+    settingsByGraph.set(graph, settings);
+    return settings;
+}
 // One lenient policy for every specifier, whatever the project configures for
 // tsc: bundler-style resolution accepts extensionless imports and maps
 // "./x.js" onto x.ts, which is how these projects are actually built.
@@ -464,7 +512,15 @@ function buildGraphWithConfigs(rootDir, ignoreGlobs) {
             }
         }
     }
-    return { graph: { importers, files }, configPaths: settings.configPaths };
+    const graph = { importers, files };
+    settingsByGraph.set(graph, settings);
+    // Reuses the map just built for edge recovery instead of letting
+    // canonicalGraphPath recompute an identical one from graph.files on first
+    // call - the graph and its lowercase index are known equal here for free.
+    if (filesByLowerCase !== undefined) {
+        filesByLowerCaseByGraph.set(graph, filesByLowerCase);
+    }
+    return { graph, configPaths: settings.configPaths };
 }
 // Upper bound on how long a stale graph can survive a sequence of lints that
 // never revisits a file. Well below the time between a human edit and the next
@@ -563,11 +619,16 @@ function trackedFilesChanged(cached) {
 }
 function needsRebuild(cached, currentFile, rootDir, ignoreGlobs) {
     // Scanning every file for every linted file is O(files^2) stats per run, so
-    // validate once per pass instead: seeing a file again means a new pass began.
-    // The elapsed-time bound covers passes that never revisit a file.
+    // validate once per pass instead: seeing a file again means a new pass
+    // began. The elapsed-time bound covers passes that never revisit a file.
+    // The proven-same-parse case (matching file and visitToken) is handled by
+    // the caller before this function even runs tsconfigNeedsRebuild, so by the
+    // time we get here any repeat of the immediately preceding file is a
+    // genuine new pass, exactly as when this function had no token parameter.
     const now = Date.now();
-    if (cached.visited.has(currentFile) ||
-        now - cached.validatedAt >= REVALIDATE_AFTER_MS) {
+    const newPass = cached.visited.has(currentFile) ||
+        now - cached.validatedAt >= REVALIDATE_AFTER_MS;
+    if (newPass) {
         cached.visited.clear();
         cached.validatedAt = now;
         if (trackedFilesChanged(cached)) {
@@ -580,12 +641,37 @@ function needsRebuild(cached, currentFile, rootDir, ignoreGlobs) {
     }
     return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
 }
-export function getGraph(rootDir, ignoreGlobs, currentFile) {
+// `visitToken` lets a second rule asking about the same file in the same
+// parse skip revalidation entirely rather than merely avoid tripping the
+// pass-boundary check - pass `context.sourceCode`, which ESLint hands to
+// every rule as the identical object for one parse and as a new object for
+// every subsequent parse (see runRules in ESLint's linter, which builds one
+// shared rule-context base per file and extends it per rule; verified this
+// holds across ESLint 9 and 10, under `--cache`, `lintText`, and a processor
+// splitting one file into several blocks). Omitted by callers that only ever
+// ask once per file (tests, a single-rule setup); such a caller gets the
+// original, more conservative behaviour, where every repeat of a file counts
+// as a new pass.
+export function getGraph(rootDir, ignoreGlobs, currentFile, visitToken) {
     const key = rootDir + "\0" + ignoreGlobs.join("\0");
     const cached = cache.get(key);
+    // A second rule's call inside the very same parse cannot have observed a
+    // tsconfig edit or a tracked-file change that the first rule's call to this
+    // function did not already validate, so this skips tsconfigNeedsRebuild's
+    // realpath + findTsconfig walk + config stat and needsRebuild's own
+    // realpath entirely, not just the pass-boundary bookkeeping inside it.
+    if (cached !== undefined &&
+        visitToken !== undefined &&
+        cached.lastFile === currentFile &&
+        cached.lastToken?.deref() === visitToken) {
+        return cached.graph;
+    }
     if (cached !== undefined &&
         !tsconfigNeedsRebuild(cached, rootDir) &&
         !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)) {
+        cached.lastFile = currentFile;
+        cached.lastToken =
+            visitToken === undefined ? undefined : new WeakRef(visitToken);
         return cached.graph;
     }
     const { graph, configPaths } = buildGraphWithConfigs(rootDir, ignoreGlobs);
@@ -595,6 +681,8 @@ export function getGraph(rootDir, ignoreGlobs, currentFile) {
         stamps,
         configs: stampConfigs(configPaths),
         visited: new Set([currentFile]),
+        lastFile: currentFile,
+        lastToken: visitToken === undefined ? undefined : new WeakRef(visitToken),
         validatedAt: Date.now(),
         coarseTimestamps: hasCoarseTimestamps(stamps),
         builtAt: Date.now(),

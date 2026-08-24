@@ -4,6 +4,7 @@ declare const _default: {
         version: string;
     };
     rules: {
+        entry: import("eslint").Rule.RuleModule;
         ownership: import("eslint").Rule.RuleModule;
     };
 };

@@ -2,6 +2,7 @@ import path from "node:path";
 import { safeReaddir, safeRealpath, safeStat } from "../lib/fs-safe.js";
 import { getGraph, isExcludedPath, isOutsideRoot, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../lib/graph.js";
 import { collectReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "../lib/owners.js";
+import { resolveRootDir } from "../lib/root.js";
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
 function isStylesheet(filePath) {
     const basename = path.basename(filePath);
@@ -64,40 +65,6 @@ function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
     const fileBasename = path.basename(filename, path.extname(filename));
     return fileBasename === dirName || fileBasename === "index";
 }
-// A relative root is resolved against the working directory, but ESLint may be
-// invoked from anywhere - a subdirectory, via lint-staged, from a monorepo script.
-// Resolving "src" against cwd alone meant the directory was simply not found from
-// a subdirectory, and a missing root reports nothing, so the rule went quiet
-// instead of complaining. Walk up until the configured root exists.
-function isProjectBoundary(dir) {
-    return (safeStat(path.join(dir, "package.json")) !== undefined ||
-        safeStat(path.join(dir, ".git")) !== undefined);
-}
-function resolveRootDir(rootOption, cwd) {
-    if (path.isAbsolute(rootOption)) {
-        return rootOption;
-    }
-    let dir = cwd;
-    while (true) {
-        const candidate = path.resolve(dir, rootOption);
-        if (safeStat(candidate)?.isDirectory() === true) {
-            return candidate;
-        }
-        // Stop at the project it belongs to. Unbounded, the walk would happily
-        // resolve root: "src" to a checkout's parent directory that happens to be
-        // called src, taking unrelated projects into the graph and making the
-        // findings depend on where the repository sits on disk.
-        if (isProjectBoundary(dir)) {
-            break;
-        }
-        const parent = path.dirname(dir);
-        if (parent === dir) {
-            break;
-        }
-        dir = parent;
-    }
-    return path.resolve(cwd, rootOption);
-}
 const rule = {
     meta: {
         type: "problem",
@@ -152,7 +119,10 @@ const rule = {
                     return;
                 }
                 const realDir = path.dirname(realFilename);
-                const graph = getGraph(rootDir, ignore, realFilename);
+                // context.sourceCode lets this share one graph build per file with
+                // colocate/entry when both are enabled - see the comment on
+                // CachedGraph.lastToken in graph.ts.
+                const graph = getGraph(rootDir, ignore, realFilename, context.sourceCode);
                 const layerDirs = resolveLayerDirectories(graph, cwd, layers, realRootDir);
                 const ownershipContext = { graph, rootDir: realRootDir, layerDirs };
                 // Report on the first statement so eslint-disable comments still apply under ESLint 10.

@@ -1,3 +1,4 @@
+import entry from "./rules/entry.js";
 import ownership from "./rules/ownership.js";
 export default {
     meta: {
@@ -5,6 +6,7 @@ export default {
         version: "0.0.0",
     },
     rules: {
+        entry,
         ownership,
     },
 };
