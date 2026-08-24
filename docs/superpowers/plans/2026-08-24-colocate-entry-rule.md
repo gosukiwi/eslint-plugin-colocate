@@ -32,6 +32,17 @@ These were decided in full and are **not** open for re-litigation during impleme
 | `configs.recommended` | Not added |
 | `ownership` rule | **Untouched** |
 
+## Correction applied during Task 5 — read before writing any entry fixture test
+
+Every `lintEntryFixture` call in Tasks 6–11 must pass **`{ root: "src" }`** explicitly, even where the plan's snippet below omits it. The fixture `cwd` is the fixture directory, so the default `root: "."` resolves the graph root to the *parent* of `src`. Two consequences:
+
+1. **Message paths gain a `src/` prefix** — `'src/Feature/helper.ts' is inside module 'src/Feature'` instead of `'Feature/helper.ts' is inside module 'Feature'`. Every message assertion in the tasks below is written without that prefix, so it fails without the option.
+2. **`ignore` globs are relative to `root`** — so Task 10's `ignore: ["Feature/helper.ts"]` matches nothing unless `root` is `"src"`. This one is a correctness issue, not just cosmetics.
+
+This matches the convention the existing ownership tests already use (`lintFixture("root-barrel", { root: "src" })`). Tests that assert only `file` and `line` would pass either way, but pass the option anyway so the suite is uniform.
+
+---
+
 ## File structure
 
 | File | Responsibility |
@@ -840,6 +851,7 @@ import type * as ESTree from "estree";
 import { safeRealpath } from "../lib/fs-safe.js";
 import { findCrossedGate } from "../lib/gates.js";
 import {
+  canonicalGraphPath,
   getGraph,
   getGraphResolutionSettings,
   isExcludedPath,
@@ -917,14 +929,22 @@ const rule: Rule.RuleModule = {
 
     const check = (specifier: string, node: ESTree.Node): void => {
       graph ??= getGraph(rootDir, ignore, realFilename);
-      const target = resolveSpecifier(
+      // Same rootDir passed to getGraph, so the settings are the ones this
+      // graph resolved with. The accessor is total: on a miss it computes and
+      // memoises, so an aliased specifier can never silently fail to resolve.
+      const resolved = resolveSpecifier(
         specifier,
         fromDir,
-        getGraphResolutionSettings(graph),
+        getGraphResolutionSettings(graph, rootDir),
       );
-      if (target === undefined) {
+      if (resolved === undefined) {
         return;
       }
+      // fs.realpathSync does not fold case on macOS, so a resolved path carries
+      // the specifier's casing. Left uncorrected, "./Feature/FEATURE" misses
+      // isEntryFile and reports a door the author already used, while
+      // "./feature/helper" misses the gate key and reports nothing at all.
+      const target = canonicalGraphPath(graph, resolved);
 
       const targetRel = path.relative(realRootDir, target);
       if (
@@ -1877,6 +1897,22 @@ Add to the "Invariants (do not regress)" list:
 - `entry` detection stays structural; do not reuse `isOwnerEntryFile` for it.
 ```
 
+### Accumulated `AGENTS.md` corrections found during Tasks 2–11
+
+These were discovered mid-execution and deliberately deferred here. Each is a place the documentation no longer matches the code:
+
+1. **Test-file list** — `root.test.ts` was added in Task 2 (already done at the time), but the list still omits `gates.test.ts`, `harness.test.ts`, and `entry.test.ts`. Add all three.
+2. **Degradation cases live in `entry.test.ts`, not `robustness.test.ts`** — the layout list designates `robustness.test.ts` as the home for "missing root, missing file, unreadable, deleted importer", but `entry`'s equivalents sit in `entry.test.ts`, next to their positive controls, which is the right place for them. Amend the line rather than moving the tests.
+3. **Docs-URL note** — the note about preserving the heading that slugifies to `#what-it-reports` must be extended to cover `#the-entry-rule`. `plugin-meta.test.ts` only asserts the URL starts with `https://`, so a dangling anchor is otherwise uncaught.
+4. **`require` arity divergence** — `entry`'s `CallExpression` visitor only treats a single-argument `require()` as an edge, whereas `graph.ts` takes `arguments[0]` at any arity. Worth a sentence, since the two are otherwise described as mirroring each other.
+
+### Deferred `graph.ts` follow-ups — out of scope, do not fix here
+
+Found during Task 9's review. In both cases the *rule* is more correct than the graph, so these are graph bugs, not entry bugs. Record them somewhere durable (an issue, or a note in `AGENTS.md`) rather than fixing them in this branch:
+
+- `import { createRequire as require }` followed by `require("./x")` produces a spurious graph edge to `./x`. That call returns a require function; it does not load `./x`.
+- `graph.ts` propagates its `shadowed` flag stickily to all descendant scopes, so an inner `const require = createRequire(...)` is ignored when an outer non-`createRequire` `require` exists. The rule's scope-chain walk is properly lexical.
+
 - [ ] **Step 3: Run the full verification**
 
 ```bash
@@ -1892,6 +1928,8 @@ Expected: `npm test` all green; `typecheck` and `build` clean; `check:placement`
 
 Run: `grep -n "the-entry-rule" README.md src/rules/entry.ts`
 Expected: the `## The entry rule` heading in `README.md` and the `meta.docs.url` in `src/rules/entry.ts`. GitHub slugifies `## The entry rule` to `#the-entry-rule`.
+
+Until this task lands that heading the anchor is dangling, and nothing catches it — `plugin-meta.test.ts` only asserts the URL starts with `https://`. `AGENTS.md` already carries a note about preserving the heading that slugifies to `#what-it-reports` for the ownership rule's URL; extend that note to cover `#the-entry-rule` too, so a future README reshuffle doesn't silently break either link.
 
 - [ ] **Step 5: Commit**
 
