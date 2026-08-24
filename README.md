@@ -29,6 +29,7 @@ export default [
           ignore: ["**/*.generated.ts"],
         },
       ],
+      "colocate/entry": ["error", { root: "src" }],
     },
   },
 ];
@@ -153,6 +154,31 @@ Unknown option names are rejected.
 `singletonFolder` looks for a companion stylesheet only in the same directory (`.css`, `.scss`, `.sass`, `.less`, `.styl`).
 
 An `index` that re-exports two or more siblings is a namespace barrel and is left alone.
+
+## The entry rule
+
+`colocate/ownership` decides where a file belongs. `colocate/entry` decides how you get in.
+
+A directory containing an **entry file** — one named after the directory, or an `index` — is a module with a front door. Imports from outside must land on a door. Reaching past every door into the internals is an error.
+
+```
+src/pages/Inbox/Inbox.ts
+src/pages/Inbox/state.ts
+
+// BAD — reaches past the door into an internal file
+import { loadThread } from "../pages/Inbox/state.ts";
+
+// GOOD — enters through the door
+import { loadThread } from "../pages/Inbox/Inbox.ts";
+```
+
+**Nested doors count.** A nested module's own door is a legal landing place, so `pages/Inbox/FilterPanel/FilterPanel.ts` is reachable from anywhere. Only a file that is nobody's door is off limits.
+
+**A directory with no entry file is not a module.** It gates nothing, and the rule demands nothing of it — a folder of independent siblings (`lib/`, `tabs/`) stays exactly as it is. The rule is a ratchet: add a door when a directory deserves one, and from then on it's the only way in.
+
+**Unlike `ownership`, entry points get no exemption.** A file nothing imports still may not reach past a door; a shell burrowing into a feature's internals is exactly the finding worth having.
+
+Options are `root` and `ignore`, with the same meaning as `ownership`. There is no `layers` option — layers are about placement, and say nothing about access. There is no autofix: rewriting a specifier would produce code that doesn't compile whenever the door doesn't already re-export the symbol, so widening the door is left to the user.
 
 ## Notes
 

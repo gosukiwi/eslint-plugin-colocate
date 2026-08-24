@@ -4,17 +4,20 @@ Guidance for agents working on this repository. Consumer-facing usage lives in `
 
 ## What this is
 
-ESLint 9+ plugin (`colocate/ownership`) that walks a source tree, builds an import graph, and reports files whose **location** does not match **who depends on them**. ESM only, Node 20+, TypeScript with `module: NodeNext`. Tests import `src/` directly; `npm run build` emits `dist/` for the published package.
+ESLint 9+ plugin with two rules over the same import graph. `colocate/ownership` walks a source tree and reports files whose **location** does not match **who depends on them**. `colocate/entry` reports **imports** that reach past a module's entry file into its internals. ESM only, Node 20+, TypeScript with `module: NodeNext`. Tests import `src/` directly; `npm run build` emits `dist/` for the published package.
 
 Peer: `eslint >= 9`. Developed against ESLint 10. TypeScript is both a runtime dependency (compiler API for parse/resolve) and a devDependency.
 
 ## Layout
 
 ```
-src/index.ts              plugin export: meta + rules.ownership
+src/index.ts              plugin export: meta + rules.ownership, rules.entry
 src/rules/ownership.ts    ESLint rule: options, reports, singleton/mismatchedEntry
+src/rules/entry.ts        ESLint rule: import-boundary reports
 src/lib/graph.ts          walk, specifier extract, resolve, graph cache
+src/lib/gates.ts          entry detection, gate map, crossed-gate lookup
 src/lib/owners.ts         owners, shells, layers, colocation
+src/lib/root.ts           resolve a configured root from any working directory
 src/lib/fs-safe.ts        every filesystem read: degrade to skip, never throw
 tests/fixtures/<name>/    one layout per scenario
 tests/helpers/lint-fixture.ts
@@ -23,7 +26,7 @@ scripts/check-placement.ts  opt-in satisfiability sweep
 
 `plugin.meta.version` is hardcoded in `src/index.ts`. `tests/plugin-meta.test.ts` asserts it matches `package.json` — bump both.
 
-Rule docs URL is `https://github.com/gosukiwi/eslint-plugin-colocate#what-it-reports`. Keep a heading that GitHub slugifies to `#what-it-reports` in the README.
+Rule docs URLs point at `#what-it-reports` (`ownership`) and `#the-entry-rule` (`entry`), both on `https://github.com/gosukiwi/eslint-plugin-colocate`. Keep headings in the README that GitHub slugifies to exactly those anchors — nothing catches a dangling one: `plugin-meta.test.ts` only asserts each URL starts with `https://`.
 
 ## Commands
 
@@ -53,6 +56,29 @@ Shell exemption is **not transitive** and **not configurable**. There is no `she
 **Skip colocation** when the file itself is shell, is a layer public module, or has no non-shell / non-namespace-barrel consumers.
 
 **Namespace barrels.** An `index` that re-exports two or more local siblings is not a consumer of what it re-exports. An `index` that re-exports exactly one sibling *is* a consumer.
+
+## Entry model (`colocate/entry`)
+
+Separate rule, separate concept. `ownership` asks where a file belongs; `entry` asks whether an import may cross into a module.
+
+**Gate.** A directory containing an entry file: named after the directory, or `index`. Detection is **structural** — unlike `isOwnerEntryFile`, nothing has to import it. That difference is deliberate: the imported-through condition exists to stop a convenience barrel from redrawing *ownership* boundaries, and a door that gated nothing until consumers had already migrated would never engage.
+
+**Illegal** ⟺ the target is not an entry file **and** some gate contains the target but not the importer. Report on the specifier node, naming the **innermost** such gate (`index` wins when a directory has two doors).
+
+**Nested doors count.** Landing on any entry is legal, including a child module's. This is what makes innermost the right gate to name: any door is a legal terminus, so one report is always one edit, with no cascade.
+
+Options are `{ root, ignore }` only. Do not add `layers` — placement and access are different questions, and conflating them is what the design explicitly rejected.
+
+Invariants: no shell exemption (that is the point of the rule); no barrel exemption for importers, unlike `getColocationConsumers`; type-only imports treated like value imports; no autofix; no check on whether the door re-exports the symbol; never a requirement that a directory *have* an entry.
+
+`entry`'s `CallExpression` visitor narrows to a single-argument `require()`, unlike `graph.ts`, which takes `arguments[0]` at any arity — a real CJS `require` never takes a second argument, so the narrower rule is intentional, not a gap to close.
+
+## Known issues (deferred, do not fix without discussion)
+
+Both found reviewing Task 9. In each, the *rule*'s scope handling is more correct than `graph.ts`'s:
+
+- `import { createRequire as require }` followed by `require("./x")` produces a spurious edge in `graph.ts` to `./x`. That call returns a require function; it doesn't load `./x`.
+- `graph.ts` propagates its `shadowed` flag stickily to all descendant scopes, so an inner `const require = createRequire(...)` is ignored when an outer non-`createRequire` `require` exists somewhere above it. The rule's scope-chain walk (`requireIsShadowed` in `entry.ts`) is properly lexical and does not have this bug.
 
 ## Options
 
@@ -124,6 +150,8 @@ Filesystem errors never abort the user's lint run. Missing `root`, linted path n
 - Unknown options rejected; `ignore` negation unsupported.
 - Reports stay silent rather than throw.
 - `plugin.meta.version` stays in sync with `package.json`.
+- `colocate/entry` takes no `layers` option and grants no shell or barrel exemption.
+- `entry` detection stays structural; do not reuse `isOwnerEntryFile` for it.
 
 ## Tests
 
@@ -142,10 +170,13 @@ expect(sortMessages(messages)).toEqual([
 Unit/integration split:
 
 - `ownership.test.ts` — rule findings against fixtures
+- `entry.test.ts` — entry-rule findings against fixtures, including its degradation cases (missing root, missing file, unreadable, deleted importer) alongside their positive controls, rather than in `robustness.test.ts`
+- `gates.test.ts` — `isEntryFile`, `getGates`, `findCrossedGate` unit tests
+- `harness.test.ts` — the shared fixture-lint helper itself (two-key ownership shape, per-rule/per-import entry shape)
 - `graph.test.ts` / `walk.test.ts` — resolution, walk, skip rules, temp trees + symlinks
 - `cache.test.ts` — invalidation in one process (temp dirs)
 - `owners.test.ts` — layer glob expansion / memoisation
-- `robustness.test.ts` — missing root, missing file, unreadable, deleted importer
+- `robustness.test.ts` — ownership's degradation cases: missing root, missing file, unreadable, deleted importer
 - `plugin-meta.test.ts` — exported surface
 - `root.test.ts` — relative root resolution and the project-boundary ceiling
 
