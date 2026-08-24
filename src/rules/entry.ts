@@ -148,7 +148,9 @@ const rule: Rule.RuleModule = {
       // whether reaching through it is legal. A barrel that re-exports a
       // private file under a public name launders the violation - every
       // downstream consumer of the barrel then looks innocent - so `export
-      // ... from` is checked exactly like an import.
+      // ... from` is checked exactly like an import. (ownership's predicate
+      // is sibling-scoped, so it would not even recognise a cross-directory
+      // barrel like this one.)
       ExportNamedDeclaration(node) {
         checkSource(node.source);
       },

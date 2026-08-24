@@ -131,15 +131,29 @@ describe("entry rule", () => {
   });
 
   // No barrel exemption: re-exporting a private file under a public name is a
-  // worse leak than importing it directly.
+  // worse leak than importing it directly. The barrel also re-exports two
+  // same-directory siblings (a.ts, b.ts) so it qualifies as a namespace
+  // barrel under ownership's sibling-scoped predicate - the point is that an
+  // isNamespaceBarrel-style exemption here would wrongly swallow both findings.
   it("reports a barrel that re-exports past an entry", async () => {
-    const messages = await lintEntryFixture("entry-reexport-barrel", { root: "src" });
-    expect(messages.map(({ file, line }) => ({ file, line }))).toEqual([
-      { file: "src/pages/index.ts", line: 1 },
-      { file: "src/pages/index.ts", line: 2 },
+    const messages = await lintEntryFixture("entry-reexport-barrel", {
+      root: "src",
+    });
+    expect(messages).toEqual([
+      {
+        file: "src/pages/index.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'pages/Feature/helper.ts' is inside module 'pages/Feature'; import it through 'pages/Feature/Feature.ts', or move it out of 'pages/Feature' if it is not part of it.",
+      },
+      {
+        file: "src/pages/index.ts",
+        messageId: "reachesPastEntry",
+        line: 2,
+        message:
+          "'pages/Feature/named.ts' is inside module 'pages/Feature'; import it through 'pages/Feature/Feature.ts', or move it out of 'pages/Feature' if it is not part of it.",
+      },
     ]);
-    expect(messages[0].message).toBe(
-      "'pages/Feature/helper.ts' is inside module 'pages/Feature'; import it through 'pages/Feature/Feature.ts', or move it out of 'pages/Feature' if it is not part of it.",
-    );
   });
 });
