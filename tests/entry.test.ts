@@ -320,4 +320,22 @@ describe("entry rule", () => {
       },
     ]);
   });
+
+  it("says nothing about an ignored target", async () => {
+    const messages = await lintEntryFixture("entry-ignore", {
+      root: "src",
+      ignore: ["Feature/helper.ts"],
+    });
+    expect(messages).toEqual([]);
+  });
+
+  it("still reports the same fixture without the ignore glob", async () => {
+    const messages = await lintEntryFixture("entry-ignore", { root: "src" });
+    expect(messages).toHaveLength(1);
+  });
+
+  it("honours a line-level eslint-disable comment", async () => {
+    const messages = await lintEntryFixture("entry-disable", { root: "src" });
+    expect(messages).toEqual([]);
+  });
 });
