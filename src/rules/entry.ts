@@ -12,6 +12,8 @@ import {
   isSourceFile,
   isTestFile,
   resolveSpecifier,
+  type Graph,
+  type ResolutionSettings,
 } from "../lib/graph.js";
 import { resolveRootDir } from "../lib/root.js";
 
@@ -75,16 +77,21 @@ const rule: Rule.RuleModule = {
     }
 
     const fromDir = path.dirname(realFilename);
-    // Fetched eagerly, not on the first specifier: getGraph is a cache lookup
-    // even on a hit, so laziness only ever saved work for an import-free file,
-    // while costing every caller a mutable local and a WeakMap lookup per
-    // specifier. Passing context.sourceCode lets ownership and entry share one
-    // graph build per file - see the comment on CachedGraph.lastToken in
-    // graph.ts for why a bare file-path repeat cannot be trusted for that.
-    const graph = getGraph(rootDir, ignore, realFilename, context.sourceCode);
-    const settings = getGraphResolutionSettings(graph, rootDir);
+    // Lazy: measured against eager on a tree where most files import
+    // nothing, lazy comes out meaningfully cheaper per file (getGraph is a
+    // cache lookup, not a free one, so a file that never calls
+    // reportIfPastEntry should not pay for it). context.sourceCode still lets
+    // ownership and entry share one graph build per file when both fire on
+    // it - see the comment on CachedGraph.lastToken in graph.ts for why a
+    // bare file-path repeat cannot be trusted for that, and getGraph's own
+    // visitToken short-circuit for why this composes correctly regardless of
+    // which rule asks first or whether either is lazy.
+    let graph: Graph | undefined;
+    let settings: ResolutionSettings | undefined;
 
     const reportIfPastEntry = (specifier: string, node: ESTree.Node): void => {
+      graph ??= getGraph(rootDir, ignore, realFilename, context.sourceCode);
+      settings ??= getGraphResolutionSettings(graph, rootDir);
       const resolved = resolveSpecifier(specifier, fromDir, settings);
       if (resolved === undefined) {
         return;

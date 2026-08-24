@@ -33,6 +33,14 @@ export interface Graph {
   files: string[];
 }
 
+// Compared by `===` against a value stored on the graph cache, so it must
+// exclude primitives: `unknown` would let a caller pass a string (a filename,
+// a config hash) that two unrelated single-file passes could share by
+// coincidence, turning "same parse" into a permanent false match instead of
+// the intended one-parse window. `object` rules that out under strict mode
+// (it also excludes `null`, which `unknown` would otherwise admit).
+export type VisitToken = object;
+
 export const SKIP_DIRS = new Set([
   "node_modules",
   "dist",
@@ -721,8 +729,18 @@ interface CachedGraph {
   // parse, so identical tokens can only mean "still inside that one parse."
   // A caller that omits the token (direct getGraph calls in tests) gets the
   // conservative old behaviour: every repeat of a file counts as a new pass.
+  //
+  // Held as a WeakRef, not a strong reference: a SourceCode (source text +
+  // full AST) runs roughly 300x the size of the source file, and this cache
+  // entry otherwise outlives the parse - fine for a long-running eslint CLI
+  // process where ESLint itself already pins the last SourceCode, but a
+  // problem for a host that discards its ESLint instance while the process
+  // keeps running (an editor language server). A collected token derefs to
+  // undefined, which compares unequal to everything and falls through to the
+  // conservative "treat as a new pass" path - safe, just an extra
+  // revalidation.
   lastFile: string | undefined;
-  lastToken: unknown;
+  lastToken: WeakRef<VisitToken> | undefined;
   validatedAt: number;
   // Whole-second mtimes mean the filesystem (HFS+, some network mounts) cannot
   // distinguish two writes inside the same second, so a same-size edit would
@@ -853,24 +871,17 @@ function needsRebuild(
   currentFile: string,
   rootDir: string,
   ignoreGlobs: string[],
-  visitToken: unknown,
 ): boolean {
   // Scanning every file for every linted file is O(files^2) stats per run, so
   // validate once per pass instead: seeing a file again means a new pass
-  // began. The elapsed-time bound covers passes that never revisit a file. A
-  // repeat of the immediately preceding file is excluded only when the
-  // caller's token proves it is the very same parse (two rules sharing one
-  // file) - a bare file-path match is not enough, because a later, genuine
-  // pass can legitimately start over on the very file the previous pass ended
-  // on. Without a token, every repeat counts as a new pass, same as before
-  // this parameter existed.
+  // began. The elapsed-time bound covers passes that never revisit a file.
+  // The proven-same-parse case (matching file and visitToken) is handled by
+  // the caller before this function even runs tsconfigNeedsRebuild, so by the
+  // time we get here any repeat of the immediately preceding file is a
+  // genuine new pass, exactly as when this function had no token parameter.
   const now = Date.now();
-  const sameVisit =
-    visitToken !== undefined &&
-    cached.lastFile === currentFile &&
-    cached.lastToken === visitToken;
   const newPass =
-    (cached.visited.has(currentFile) && !sameVisit) ||
+    cached.visited.has(currentFile) ||
     now - cached.validatedAt >= REVALIDATE_AFTER_MS;
   if (newPass) {
     cached.visited.clear();
@@ -880,8 +891,6 @@ function needsRebuild(
     }
   }
   cached.visited.add(currentFile);
-  cached.lastFile = currentFile;
-  cached.lastToken = visitToken;
 
   if (cached.stamps.has(currentFile)) {
     return false;
@@ -889,26 +898,48 @@ function needsRebuild(
   return isProductionGraphFile(currentFile, rootDir, ignoreGlobs);
 }
 
-// `visitToken` lets two rules asking about the same file in the same pass
-// avoid tripping the pass-boundary check in needsRebuild - pass
-// `context.sourceCode`, which ESLint hands to every rule as the identical
-// object for one parse and as a new object for every subsequent parse (see
-// runRules in ESLint's linter, which builds one shared rule-context base per
-// file and extends it per rule). Omitted by callers that only ever ask once
-// per file (tests, a single-rule setup).
+// `visitToken` lets a second rule asking about the same file in the same
+// parse skip revalidation entirely rather than merely avoid tripping the
+// pass-boundary check - pass `context.sourceCode`, which ESLint hands to
+// every rule as the identical object for one parse and as a new object for
+// every subsequent parse (see runRules in ESLint's linter, which builds one
+// shared rule-context base per file and extends it per rule; verified this
+// holds across ESLint 9 and 10, under `--cache`, `lintText`, and a processor
+// splitting one file into several blocks). Omitted by callers that only ever
+// ask once per file (tests, a single-rule setup); such a caller gets the
+// original, more conservative behaviour, where every repeat of a file counts
+// as a new pass.
 export function getGraph(
   rootDir: string,
   ignoreGlobs: string[],
   currentFile: string,
-  visitToken?: unknown,
+  visitToken?: VisitToken,
 ): Graph {
   const key = rootDir + "\0" + ignoreGlobs.join("\0");
   const cached = cache.get(key);
+
+  // A second rule's call inside the very same parse cannot have observed a
+  // tsconfig edit or a tracked-file change that the first rule's call to this
+  // function did not already validate, so this skips tsconfigNeedsRebuild's
+  // realpath + findTsconfig walk + config stat and needsRebuild's own
+  // realpath entirely, not just the pass-boundary bookkeeping inside it.
+  if (
+    cached !== undefined &&
+    visitToken !== undefined &&
+    cached.lastFile === currentFile &&
+    cached.lastToken?.deref() === visitToken
+  ) {
+    return cached.graph;
+  }
+
   if (
     cached !== undefined &&
     !tsconfigNeedsRebuild(cached, rootDir) &&
-    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs, visitToken)
+    !needsRebuild(cached, currentFile, rootDir, ignoreGlobs)
   ) {
+    cached.lastFile = currentFile;
+    cached.lastToken =
+      visitToken === undefined ? undefined : new WeakRef(visitToken);
     return cached.graph;
   }
 
@@ -920,7 +951,7 @@ export function getGraph(
     configs: stampConfigs(configPaths),
     visited: new Set([currentFile]),
     lastFile: currentFile,
-    lastToken: visitToken,
+    lastToken: visitToken === undefined ? undefined : new WeakRef(visitToken),
     validatedAt: Date.now(),
     coarseTimestamps: hasCoarseTimestamps(stamps),
     builtAt: Date.now(),
