@@ -1,21 +1,23 @@
 import path from "node:path";
-import type { Rule, Scope, SourceCode } from "eslint";
+import type { Rule } from "eslint";
 import type * as ESTree from "estree";
 import { safeRealpath } from "../lib/fs-safe.js";
 import { findCrossedGate } from "../lib/gates.js";
+import { getGraph } from "../lib/graph-cache.js";
 import {
   canonicalGraphPath,
-  getGraph,
   getGraphResolutionSettings,
+  type Graph,
+} from "../lib/graph.js";
+import { requireIsShadowed } from "../lib/require-binding.js";
+import { resolveSpecifier, type ResolutionSettings } from "../lib/resolve.js";
+import { resolveRootDir } from "../lib/root.js";
+import {
   isExcludedPath,
   isOutsideRoot,
   isSourceFile,
   isTestFile,
-  resolveSpecifier,
-  type Graph,
-  type ResolutionSettings,
-} from "../lib/graph.js";
-import { resolveRootDir } from "../lib/root.js";
+} from "../lib/scope.js";
 
 interface RuleOptions {
   root?: string;
@@ -24,55 +26,6 @@ interface RuleOptions {
 
 function relativePosix(from: string, to: string): string {
   return path.relative(from, to).split(path.sep).join("/");
-}
-
-// Mirrors graph.ts's isCreateRequireCall: accepts both `createRequire(...)`
-// and `mod.createRequire(...)`.
-function isCreateRequireCall(init: ESTree.Node | null | undefined): boolean {
-  if (init === null || init === undefined || init.type !== "CallExpression") {
-    return false;
-  }
-  const callee = init.callee;
-  return (
-    (callee.type === "Identifier" && callee.name === "createRequire") ||
-    (callee.type === "MemberExpression" &&
-      callee.property.type === "Identifier" &&
-      callee.property.name === "createRequire")
-  );
-}
-
-// Mirrors graph.ts: a `require` bound in an enclosing scope is not the CJS one,
-// so it is not an edge - unless it was bound by createRequire, which is.
-function requireIsShadowed(sourceCode: SourceCode, node: ESTree.Node): boolean {
-  let scope: Scope.Scope | null = sourceCode.getScope(node);
-  while (scope !== null) {
-    const variable = scope.variables.find((entry) => entry.name === "require");
-    // An ambient/global `require` (Node's CJS globals, a `.cjs` file's
-    // default sourceType, `globals: globals.node`) has no defs at all - it
-    // is not a local binding, so it must not be treated as shadowing the
-    // CJS one. Only a variable with an actual definition here (parameter,
-    // `const`, `function require() {}`, ...) can shadow it.
-    if (variable !== undefined && variable.defs.length > 0) {
-      // Every def has to be a createRequire binding for the name to still be
-      // the real require. `defs.some` was order-blind: with `var require =
-      // createRequire(url)` followed by `var require = 1`, the call loads
-      // nothing at all, yet a some() check still called it genuine and
-      // reported a crossing that cannot happen. Requiring all of them trades
-      // that false positive for a false negative in the mirror case (plain
-      // first, createRequire second) - the right way round for a lint rule,
-      // and just as rare, since both need `require` declared twice in one
-      // scope.
-      return !variable.defs.every((def) => {
-        const declarator = def.node as { type: string; init?: ESTree.Node | null };
-        return (
-          declarator.type === "VariableDeclarator" &&
-          isCreateRequireCall(declarator.init)
-        );
-      });
-    }
-    scope = scope.upper;
-  }
-  return false;
 }
 
 const rule: Rule.RuleModule = {
@@ -131,10 +84,10 @@ const rule: Rule.RuleModule = {
     // cache lookup, not a free one, so a file that never calls
     // reportIfPastEntry should not pay for it). context.sourceCode still lets
     // ownership and entry share one graph build per file when both fire on
-    // it - see the comment on CachedGraph.lastToken in graph.ts for why a
-    // bare file-path repeat cannot be trusted for that, and getGraph's own
-    // visitToken short-circuit for why this composes correctly regardless of
-    // which rule asks first or whether either is lazy.
+    // it - see the comment on PassState in graph-cache.ts for why a bare file-
+    // path repeat cannot be trusted for that, and getGraph's own visitToken
+    // short-circuit for why this composes correctly regardless of which rule
+    // asks first or whether either is lazy.
     let graph: Graph | undefined;
     let settings: ResolutionSettings | undefined;
     let importer: string | undefined;
@@ -280,7 +233,7 @@ const rule: Rule.RuleModule = {
         if (
           node.callee.type !== "Identifier" ||
           node.callee.name !== "require" ||
-          // graph.ts takes arguments[0] at any arity, so require("./x", opts)
+          // parse.ts takes arguments[0] at any arity, so require("./x", opts)
           // is still an edge there; narrowed to exactly one argument here
           // deliberately, since a real CJS require never takes a second one.
           node.arguments.length !== 1

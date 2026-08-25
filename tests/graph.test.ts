@@ -4,13 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
+import { getGraph } from "../src/lib/graph-cache.js";
 import {
   canonicalGraphPath,
-  getGraph,
   getGraphResolutionSettings,
-  isTestFile,
-  resolveSpecifier,
 } from "../src/lib/graph.js";
+import { resolveSpecifier } from "../src/lib/resolve.js";
+import { isTestFile } from "../src/lib/scope.js";
 
 const created: string[] = [];
 

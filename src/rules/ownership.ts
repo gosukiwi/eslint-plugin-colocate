@@ -1,15 +1,7 @@
 import path from "node:path";
 import type { Rule } from "eslint";
 import { safeReaddir, safeRealpath, safeStat } from "../lib/fs-safe.js";
-import {
-  getGraph,
-  isExcludedPath,
-  isOutsideRoot,
-  isSourceFile,
-  isTestFile,
-  matchesIgnore,
-  SKIP_DIRS,
-} from "../lib/graph.js";
+import { getGraph } from "../lib/graph-cache.js";
 import {
   collectReExports,
   getSharedColocationIssue,
@@ -17,6 +9,14 @@ import {
   resolveLayerDirectories,
 } from "../lib/owners.js";
 import { resolveRootDir } from "../lib/root.js";
+import {
+  isExcludedPath,
+  isOutsideRoot,
+  isSourceFile,
+  isTestFile,
+  matchesIgnore,
+  SKIP_DIRS,
+} from "../lib/scope.js";
 
 interface RuleOptions {
   root?: string;

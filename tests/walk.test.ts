@@ -2,12 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  buildGraph,
-  getGraph,
-  resolveSpecifier,
-  stampIsAmbiguous,
-} from "../src/lib/graph.js";
+import { getGraph, stampIsAmbiguous } from "../src/lib/graph-cache.js";
+import { buildGraph } from "../src/lib/graph.js";
+import { resolveSpecifier } from "../src/lib/resolve.js";
 
 const created: string[] = [];
 
