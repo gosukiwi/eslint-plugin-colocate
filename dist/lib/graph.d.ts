@@ -18,13 +18,15 @@ export interface ResolutionSettings {
     configPaths: string[];
 }
 /**
- * The graph's own casing for a resolved path, or the path unchanged when the
- * filesystem is case-sensitive. `fs.realpathSync` (what `safeRealpath` uses)
- * does not fold case on macOS - only the `.native` variant does - so a path
- * fresh out of `resolveSpecifier` carries whatever casing the specifier text
- * used, not the casing the file actually has on disk. Callers that key off a
- * file's directory (gates, ownership) need the latter or they miss real
- * boundaries and invent fake ones.
+ * The graph's own spelling of a resolved path, or the path unchanged when
+ * nothing in the graph matches it.
+ *
+ * `resolveSpecifier` hands back a path built from the specifier's own text, and
+ * `fs.realpathSync` (what `safeRealpath` uses) neither folds case on macOS - only
+ * its `.native` variant does - nor normalizes Unicode on any platform. So a path
+ * that resolved perfectly well can still differ byte-for-byte from the one the
+ * walk recorded. Callers that key off a file's directory (gates) need the
+ * recorded spelling or they miss real boundaries and invent fake ones.
  */
 export declare function canonicalGraphPath(graph: Graph, filePath: string): string;
 export declare function getGraphResolutionSettings(graph: Graph, rootDir: string): ResolutionSettings;

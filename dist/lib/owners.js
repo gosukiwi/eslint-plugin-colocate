@@ -3,6 +3,7 @@ import { minimatch } from "minimatch";
 import ts from "typescript";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
+import { isInsideDir } from "./paths.js";
 const shellsByGraph = new WeakMap();
 const layerDirsByGraph = new WeakMap();
 export function collectReExports(indexFile, dir) {
@@ -221,9 +222,6 @@ export function getShells(ctx) {
 export function getColocationConsumers(filePath, graph, shells) {
     const importers = graph.importers.get(filePath) ?? [];
     return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer));
-}
-function isInsideDir(filePath, dir) {
-    return filePath.startsWith(dir + path.sep);
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {

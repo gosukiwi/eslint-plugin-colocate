@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isInsideDir } from "./paths.js";
 const gatesByGraph = new WeakMap();
 /**
  * Structural on purpose. The ownership model only treats an `index` as an entry
@@ -40,17 +41,6 @@ export function getGates(graph) {
     }
     gatesByGraph.set(graph, gates);
     return gates;
-}
-// Duplicated rather than imported from owners.ts: sharing it would make the
-// access model depend on the ownership model for a one-line predicate, and
-// drag typescript/minimatch into this file for nothing.
-function isInsideDir(filePath, dir) {
-    // A dir that already ends in the separator is the filesystem root, where
-    // naive concatenation builds "//" and matches nothing - so the importer
-    // looked outside a gate it was plainly inside. Reachable because
-    // resolveRootDir returns an absolute root verbatim, so root: "/" survives.
-    const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
-    return filePath.startsWith(prefix);
 }
 /**
  * The innermost gate containing `target` but not `importer`, or undefined when
