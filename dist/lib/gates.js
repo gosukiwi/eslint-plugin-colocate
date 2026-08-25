@@ -1,6 +1,6 @@
 import path from "node:path";
+import { derivedFromGraph } from "./derived.js";
 import { isInsideDir } from "./paths.js";
-const gatesByGraph = new WeakMap();
 /**
  * Structural on purpose. The ownership model only treats an `index` as an entry
  * when code outside the directory imports through it, because a convenience
@@ -20,11 +20,7 @@ export function isEntryFile(filePath) {
  * first one in the sorted `graph.files` wins - a real ordering artefact, not a
  * meaningful choice between them.
  */
-export function getGates(graph) {
-    const cached = gatesByGraph.get(graph);
-    if (cached !== undefined) {
-        return cached;
-    }
+export const getGates = derivedFromGraph((graph) => {
     const gates = new Map();
     for (const file of graph.files) {
         if (!isEntryFile(file)) {
@@ -39,9 +35,8 @@ export function getGates(graph) {
             gates.set(dir, file);
         }
     }
-    gatesByGraph.set(graph, gates);
     return gates;
-}
+});
 /**
  * The innermost gate containing `target` but not `importer`, or undefined when
  * no boundary separates them.

@@ -1,22 +1,23 @@
-import ts from "typescript";
-export declare const SOURCE_EXTS: readonly [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
-export declare function isTestFile(relPath: string): boolean;
+/**
+ * Readonly because six indexes are derived from a graph and memoised against
+ * the graph object for its whole lifetime (see derived.ts): mutating `files` or
+ * `importers` in place would silently desync every one of them. A changed tree
+ * produces a NEW graph - which is also what drops the old indexes, since
+ * nothing invalidates them.
+ */
 export interface Graph {
-    importers: Map<string, string[]>;
-    files: string[];
+    readonly importers: ReadonlyMap<string, readonly string[]>;
+    readonly files: readonly string[];
 }
-export type VisitToken = object;
-export declare const SKIP_DIRS: Set<string>;
-export declare function isSourceFile(p: string): boolean;
-export declare function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean;
-export declare function isOutsideRoot(relPath: string): boolean;
-export declare function isExcludedPath(relPath: string, ignoreGlobs: string[]): boolean;
-export declare function parseSourceFile(fileName: string, content: string): ts.SourceFile;
-export interface ResolutionSettings {
-    options: ts.CompilerOptions;
-    cache: ts.ModuleResolutionCache;
-    configPaths: string[];
-}
+/**
+ * Whether the graph contains this exact path.
+ *
+ * Exact on purpose: a caller asking "does the model know this module" is
+ * checking a path it got from the graph or from `collectReExports`, and folding
+ * would answer for a different file. Use `canonicalGraphPath` first when the
+ * path came from a specifier instead.
+ */
+export declare function graphHasFile(graph: Graph, filePath: string): boolean;
 /**
  * The graph's own spelling of a resolved path, or the path unchanged when
  * nothing in the graph matches it.
@@ -29,10 +30,11 @@ export interface ResolutionSettings {
  * recorded spelling or they miss real boundaries and invent fake ones.
  */
 export declare function canonicalGraphPath(graph: Graph, filePath: string): string;
-export declare function getGraphResolutionSettings(graph: Graph, rootDir: string): ResolutionSettings;
-export declare function findTsconfig(rootDir: string): string | undefined;
-export declare function resolveSpecifier(specifier: string, fromDir: string, settings?: ResolutionSettings): string | undefined;
+export declare const getGraphResolutionSettings: ((graph: Graph, rootDir: string) => import("./resolve.js").ResolutionSettings) & {
+    prime: (graph: Graph, value: import("./resolve.js").ResolutionSettings) => void;
+};
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
-export declare const REVALIDATE_AFTER_MS = 100;
-export declare function stampIsAmbiguous(mtimeMs: number, builtAt: number, coarseTimestamps: boolean): boolean;
-export declare function getGraph(rootDir: string, ignoreGlobs: string[], currentFile: string, visitToken?: VisitToken): Graph;
+export declare function buildGraphWithConfigs(rootDir: string, ignoreGlobs: string[]): {
+    graph: Graph;
+    configPaths: string[];
+};

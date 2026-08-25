@@ -15,7 +15,9 @@ export declare function isEntryFile(filePath: string): boolean;
  * first one in the sorted `graph.files` wins - a real ordering artefact, not a
  * meaningful choice between them.
  */
-export declare function getGates(graph: Graph): ReadonlyMap<string, string>;
+export declare const getGates: ((graph: Graph) => ReadonlyMap<string, string>) & {
+    prime: (graph: Graph, value: ReadonlyMap<string, string>) => void;
+};
 export interface CrossedGate {
     dir: string;
     entry: string;
