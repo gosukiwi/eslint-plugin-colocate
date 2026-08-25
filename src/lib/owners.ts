@@ -1,6 +1,7 @@
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import { type Graph } from "./graph.js";
 import { parseSourceFile } from "./parse.js";
@@ -13,9 +14,6 @@ export interface OwnershipContext {
   rootDir: string;
   layerDirs: string[];
 }
-
-const shellsByGraph = new WeakMap<Graph, Set<string>>();
-const layerDirsByGraph = new WeakMap<Graph, Map<string, string[]>>();
 
 export interface ReExports {
   /** Sibling modules in the same directory, one entry per module. */
@@ -148,7 +146,7 @@ function buildImports(graph: Graph): Map<string, string[]> {
 
 // Tarjan, iterative so a deep import chain cannot blow the stack.
 function stronglyConnectedIds(
-  nodes: string[],
+  nodes: readonly string[],
   edgesOf: (node: string) => string[],
 ): Map<string, number> {
   const index = new Map<string, number>();
@@ -262,13 +260,7 @@ function getRoots(graph: Graph): Set<string> {
 // the directories it reaches as layers, which states something true about those
 // modules. Exempting the shell's imports outright would also hide a shell that
 // reaches past a feature's entry into its internals - a real finding.
-export function getShells(ctx: OwnershipContext): Set<string> {
-  const { graph } = ctx;
-  const cached = shellsByGraph.get(graph);
-  if (cached !== undefined) {
-    return cached;
-  }
-
+export const getShells = derivedFromGraph((graph) => {
   const roots = getRoots(graph);
   const shells = new Set(roots);
 
@@ -285,9 +277,8 @@ export function getShells(ctx: OwnershipContext): Set<string> {
     }
   }
 
-  shellsByGraph.set(graph, shells);
   return shells;
-}
+});
 
 export function getColocationConsumers(
   filePath: string,
@@ -351,6 +342,13 @@ export function collectLayerDirectories(
 // directory created mid-session used to stay invisible until ESLint restarted,
 // which meant a permanent false privateOutsideOwner on every module inside it.
 // A new directory rebuilds the graph, which drops this entry with it.
+//
+// Two-level, unlike every other index here: the graph does not determine the
+// answer on its own, so the inner map keys the parts that vary per call. Passing
+// them to derivedFromGraph as extra arguments would serve one graph's first
+// answer to every later cwd and glob set.
+const layerDirsByGraph = derivedFromGraph(() => new Map<string, string[]>());
+
 export function resolveLayerDirectories(
   graph: Graph,
   cwd: string,
@@ -362,12 +360,7 @@ export function resolveLayerDirectories(
   }
 
   const key = cwd + "\0" + rootDir + "\0" + layerGlobs.join("\0");
-  let perGraph = layerDirsByGraph.get(graph);
-  if (perGraph === undefined) {
-    perGraph = new Map();
-    layerDirsByGraph.set(graph, perGraph);
-  }
-
+  const perGraph = layerDirsByGraph(graph);
   const cached = perGraph.get(key);
   if (cached !== undefined) {
     return cached;
@@ -407,7 +400,7 @@ export function shouldSkipColocation(
   filePath: string,
   ctx: OwnershipContext,
 ): boolean {
-  const shells = getShells(ctx);
+  const shells = getShells(ctx.graph);
   if (shells.has(filePath)) {
     return true;
   }
@@ -421,7 +414,7 @@ function collectConsumerOwners(
   filePath: string,
   ctx: OwnershipContext,
 ): Map<string, Owner> {
-  const shells = getShells(ctx);
+  const shells = getShells(ctx.graph);
   const consumers = getColocationConsumers(filePath, ctx.graph, shells);
   const owners = new Map<string, Owner>();
   for (const consumer of consumers) {

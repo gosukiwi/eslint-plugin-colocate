@@ -25,6 +25,7 @@ src/lib/graph-cache.ts    one graph per process, revalidated once per lint pass
 src/lib/gates.ts          entry detection, gate map, crossed-gate lookup
 src/lib/owners.ts         owners, shells, layers, colocation
 src/lib/paths.ts          is-this-path-inside-that-directory, one copy only
+src/lib/derived.ts        index derived from a graph, memoised for its lifetime
 src/lib/root.ts           resolve a configured root from any working directory
 src/lib/fs-safe.ts        every filesystem read: degrade to skip, never throw
 tests/fixtures/<name>/    one layout per scenario
@@ -33,6 +34,8 @@ scripts/check-placement.ts  opt-in satisfiability sweep, both rules
 ```
 
 `plugin.meta.version` is hardcoded in `src/index.ts`. `tests/plugin-meta.test.ts` asserts it matches `package.json` — bump both.
+
+Every per-graph derived index — resolution settings, the member and folded-path indexes, gates, shells, layer directories — goes through `derivedFromGraph` in `src/lib/derived.ts`: do not hand-roll another `WeakMap<Graph, X>`, and do not hang feature state on `Graph` (it is `readonly` precisely so those indexes can be trusted for the graph's lifetime).
 
 Rule docs URLs point at `#what-it-reports` (`ownership`) and `#the-entry-rule` (`entry`), both on `https://github.com/gosukiwi/eslint-plugin-colocate`. Keep headings in the README that GitHub slugifies to exactly those anchors — nothing catches a dangling one: `plugin-meta.test.ts` only asserts each URL starts with `https://`.
 

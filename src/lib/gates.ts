@@ -1,8 +1,7 @@
 import path from "node:path";
+import { derivedFromGraph } from "./derived.js";
 import type { Graph } from "./graph.js";
 import { isInsideDir } from "./paths.js";
-
-const gatesByGraph = new WeakMap<Graph, ReadonlyMap<string, string>>();
 
 /**
  * Structural on purpose. The ownership model only treats an `index` as an entry
@@ -24,31 +23,26 @@ export function isEntryFile(filePath: string): boolean {
  * first one in the sorted `graph.files` wins - a real ordering artefact, not a
  * meaningful choice between them.
  */
-export function getGates(graph: Graph): ReadonlyMap<string, string> {
-  const cached = gatesByGraph.get(graph);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const gates = new Map<string, string>();
-  for (const file of graph.files) {
-    if (!isEntryFile(file)) {
-      continue;
+export const getGates = derivedFromGraph<ReadonlyMap<string, string>>(
+  (graph) => {
+    const gates = new Map<string, string>();
+    for (const file of graph.files) {
+      if (!isEntryFile(file)) {
+        continue;
+      }
+      const dir = path.dirname(file);
+      const isIndex = path.basename(file, path.extname(file)) === "index";
+      const existing = gates.get(dir);
+      const existingIsIndex =
+        existing !== undefined &&
+        path.basename(existing, path.extname(existing)) === "index";
+      if (existing === undefined || (isIndex && !existingIsIndex)) {
+        gates.set(dir, file);
+      }
     }
-    const dir = path.dirname(file);
-    const isIndex = path.basename(file, path.extname(file)) === "index";
-    const existing = gates.get(dir);
-    const existingIsIndex =
-      existing !== undefined &&
-      path.basename(existing, path.extname(existing)) === "index";
-    if (existing === undefined || (isIndex && !existingIsIndex)) {
-      gates.set(dir, file);
-    }
-  }
-
-  gatesByGraph.set(graph, gates);
-  return gates;
-}
+    return gates;
+  },
+);
 
 export interface CrossedGate {
   dir: string;

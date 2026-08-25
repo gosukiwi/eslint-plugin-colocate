@@ -1,45 +1,26 @@
 import path from "node:path";
 import ts from "typescript";
+import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeRealpath } from "./fs-safe.js";
 import { extractSpecifiers } from "./parse.js";
-import {
-  createResolutionSettings,
-  resolveSpecifier,
-  type ResolutionSettings,
-} from "./resolve.js";
+import { createResolutionSettings, resolveSpecifier } from "./resolve.js";
 import { collectSourceFiles } from "./walk.js";
 
+/**
+ * Readonly because six indexes are derived from a graph and memoised against
+ * the graph object for its whole lifetime (see derived.ts): mutating `files` or
+ * `importers` in place would silently desync every one of them. A changed tree
+ * produces a NEW graph - which is also what drops the old indexes, since
+ * nothing invalidates them.
+ */
 export interface Graph {
-  importers: Map<string, string[]>;
-  files: string[];
+  readonly importers: ReadonlyMap<string, readonly string[]>;
+  readonly files: readonly string[];
 }
-
-// Keyed on the graph object: these settings, including the TypeScript module
-// resolution cache inside them, live exactly as long as the graph they were
-// built for and die when it does. When that happens is entirely up to the
-// graph cache's own revalidation (see graph-cache.ts) - this map just rides
-// along with whatever graph object is current.
-const settingsByGraph = new WeakMap<Graph, ResolutionSettings>();
-
-// Graph files indexed by their folded key (see foldGraphPath), for recovering
-// the graph's own spelling of a path that points at the same file by a different
-// one. Built on demand rather than by buildGraphWithConfigs: the map that
-// function builds for edge recovery is keyed on lower case alone, which is a
-// different key from this one, so the two cannot be shared.
-const filesByFoldedPathByGraph = new WeakMap<Graph, Map<string, string>>();
 
 // Exact graph membership. Only needed to give an exact hit precedence over the
 // fold below, which is why it is not part of Graph itself.
-const filesSetByGraph = new WeakMap<Graph, Set<string>>();
-
-function graphFileSet(graph: Graph): Set<string> {
-  let fileSet = filesSetByGraph.get(graph);
-  if (fileSet === undefined) {
-    fileSet = new Set(graph.files);
-    filesSetByGraph.set(graph, fileSet);
-  }
-  return fileSet;
-}
+const graphFileSet = derivedFromGraph((graph) => new Set(graph.files));
 
 // The two axes on which a resolved path can disagree with the graph's own
 // spelling while still naming the same file on disk:
@@ -58,6 +39,15 @@ function foldGraphPath(filePath: string): string {
     ? normalized
     : normalized.toLowerCase();
 }
+
+// Graph files indexed by their folded key (see foldGraphPath), for recovering
+// the graph's own spelling of a path that points at the same file by a different
+// one. Built on demand rather than primed by buildGraphWithConfigs: the map that
+// function builds for edge recovery is keyed on lower case alone, which is a
+// different key from this one, so the two cannot be shared.
+const graphFilesByFoldedPath = derivedFromGraph(
+  (graph) => new Map(graph.files.map((file) => [foldGraphPath(file), file])),
+);
 
 /**
  * The graph's own spelling of a resolved path, or the path unchanged when
@@ -83,14 +73,7 @@ export function canonicalGraphPath(graph: Graph, filePath: string): string {
   if (graphFileSet(graph).has(filePath)) {
     return filePath;
   }
-  let byFoldedPath = filesByFoldedPathByGraph.get(graph);
-  if (byFoldedPath === undefined) {
-    byFoldedPath = new Map(
-      graph.files.map((file) => [foldGraphPath(file), file]),
-    );
-    filesByFoldedPathByGraph.set(graph, byFoldedPath);
-  }
-  return byFoldedPath.get(foldGraphPath(filePath)) ?? filePath;
+  return graphFilesByFoldedPath(graph).get(foldGraphPath(filePath)) ?? filePath;
 }
 
 // Total, not a bare lookup: resolveSpecifier's settings parameter is optional
@@ -99,18 +82,14 @@ export function canonicalGraphPath(graph: Graph, filePath: string): string {
 // to nothing without anything looking broken. The only miss in practice is a
 // graph built from buildGraphWithConfigs' missing-root early return, which
 // has no files to resolve specifiers for anyway, so recomputing here is safe.
-export function getGraphResolutionSettings(
-  graph: Graph,
-  rootDir: string,
-): ResolutionSettings {
-  const cached = settingsByGraph.get(graph);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const settings = createResolutionSettings(safeRealpath(rootDir) ?? rootDir);
-  settingsByGraph.set(graph, settings);
-  return settings;
-}
+//
+// The settings carry a TypeScript module resolution cache, so keeping them for
+// the graph's lifetime is the point rather than a bonus. When that lifetime ends
+// is entirely up to the graph cache's own revalidation (see graph-cache.ts).
+export const getGraphResolutionSettings = derivedFromGraph(
+  (_graph: Graph, rootDir: string) =>
+    createResolutionSettings(safeRealpath(rootDir) ?? rootDir),
+);
 
 export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
@@ -168,13 +147,13 @@ export function buildGraphWithConfigs(
   }
 
   const graph: Graph = { importers, files };
-  settingsByGraph.set(graph, settings);
+  getGraphResolutionSettings.prime(graph, settings);
   // Reuses the member set just built for edge recovery, which is the one index
   // canonicalGraphPath needs that is known equal here for free. Its folded index
-  // is deliberately not populated from `filesByLowerCase`: that map is keyed on
+  // is deliberately not primed from `filesByLowerCase`: that map is keyed on
   // lower case alone, whereas the fold also normalizes Unicode and skips the
   // lower-casing entirely on a case-sensitive filesystem, so they are different
   // keys and sharing them would reintroduce the mismatch this exists to close.
-  filesSetByGraph.set(graph, fileSet);
+  graphFileSet.prime(graph, fileSet);
   return { graph, configPaths: settings.configPaths };
 }

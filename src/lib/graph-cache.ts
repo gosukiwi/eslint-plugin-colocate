@@ -87,7 +87,7 @@ function cacheKey(rootDir: string, ignoreGlobs: string[]): string {
   return rootDir + "\0" + ignoreGlobs.join("\0");
 }
 
-function stampFiles(files: string[]): Map<string, FileStamp> {
+function stampFiles(files: readonly string[]): Map<string, FileStamp> {
   const stamps = new Map<string, FileStamp>();
   for (const file of files) {
     const stat = safeStat(file);
