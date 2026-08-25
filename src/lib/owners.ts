@@ -8,6 +8,7 @@ import {
   SKIP_DIRS,
   type Graph,
 } from "./graph.js";
+import { isInsideDir } from "./paths.js";
 
 export interface OwnershipContext {
   graph: Graph;
@@ -299,10 +300,6 @@ export function getColocationConsumers(
   return importers.filter(
     (importer) => !shells.has(importer) && !isNamespaceBarrel(importer),
   );
-}
-
-function isInsideDir(filePath: string, dir: string): boolean {
-  return filePath.startsWith(dir + path.sep);
 }
 
 function collectLayerDirs(

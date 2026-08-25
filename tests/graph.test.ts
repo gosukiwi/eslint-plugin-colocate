@@ -309,6 +309,51 @@ describe("canonicalGraphPath", () => {
       );
     },
   );
+
+  // Runs on every platform, unlike the case tests above: normalization is folded
+  // regardless of whether the filesystem ignores case, because `readdir` reports
+  // whatever form the filesystem stores while a specifier carries whatever form
+  // the author's editor wrote, and neither realpath nor the resolver converts
+  // between them. Both directions matter - a project can be checked out either
+  // way - so both are asserted.
+  it("recovers the graph's own spelling across Unicode normalization forms", () => {
+    const nfc = "Café"; // é as a single code point
+    const nfd = "Café"; // e followed by a combining acute
+    expect(nfc).not.toBe(nfd);
+    expect(nfc.normalize("NFC")).toBe(nfd.normalize("NFC"));
+
+    // Graph stored NFC, specifier resolved NFD.
+    const storedNfc = {
+      files: [`/root/${nfc}/inner.ts`],
+      importers: new Map(),
+    };
+    expect(canonicalGraphPath(storedNfc, `/root/${nfd}/inner.ts`)).toBe(
+      `/root/${nfc}/inner.ts`,
+    );
+
+    // Graph stored NFD, specifier resolved NFC.
+    const storedNfd = {
+      files: [`/root/${nfd}/inner.ts`],
+      importers: new Map(),
+    };
+    expect(canonicalGraphPath(storedNfd, `/root/${nfc}/inner.ts`)).toBe(
+      `/root/${nfd}/inner.ts`,
+    );
+
+    // An exact member still wins, so neither spelling is rewritten when the
+    // graph already holds it verbatim.
+    expect(canonicalGraphPath(storedNfc, `/root/${nfc}/inner.ts`)).toBe(
+      `/root/${nfc}/inner.ts`,
+    );
+    expect(canonicalGraphPath(storedNfd, `/root/${nfd}/inner.ts`)).toBe(
+      `/root/${nfd}/inner.ts`,
+    );
+
+    // Still unchanged for a path the graph does not hold in any form.
+    expect(canonicalGraphPath(storedNfc, "/root/Other/inner.ts")).toBe(
+      "/root/Other/inner.ts",
+    );
+  });
 });
 
 describe("getGraphResolutionSettings", () => {

@@ -7,6 +7,7 @@ import {
   safeRealpath,
   safeStat,
 } from "./fs-safe.js";
+import { isAtOrInsideDir } from "./paths.js";
 
 export const SOURCE_EXTS = [
   ".ts",
@@ -96,10 +97,6 @@ function shouldSkip(relPath: string, ignoreGlobs: string[]): boolean {
   return matchesIgnore(relPath, ignoreGlobs);
 }
 
-function isWithinRoot(candidate: string, rootDir: string): boolean {
-  return candidate === rootDir || candidate.startsWith(rootDir + path.sep);
-}
-
 function walkDir(
   dir: string,
   rootDir: string,
@@ -157,7 +154,7 @@ function walkDir(
     // a symlinked entry file into a directory that no longer had an entry.
     // Ignoring a directory also cannot be undone by reaching it through a link.
     if (realPath !== fullPath) {
-      if (!isWithinRoot(realPath, rootDir)) {
+      if (!isAtOrInsideDir(realPath, rootDir)) {
         continue;
       }
       if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
@@ -356,16 +353,15 @@ export interface ResolutionSettings {
 // along with whatever graph object is current.
 const settingsByGraph = new WeakMap<Graph, ResolutionSettings>();
 
-// Populated from the same map buildGraphWithConfigs computes to recover
-// resolveSpecifier's edges (see there); kept here too so anything downstream of
-// resolution, not just edge-building, can ask for a path in the graph's own
-// casing. Absent for a graph buildGraphWithConfigs never built (case-sensitive
-// disks never populate it at all), which is why the accessor recomputes on
-// demand rather than assuming a hit.
-const filesByLowerCaseByGraph = new WeakMap<Graph, Map<string, string>>();
+// Graph files indexed by their folded key (see foldGraphPath), for recovering
+// the graph's own spelling of a path that points at the same file by a different
+// one. Built on demand rather than by buildGraphWithConfigs: the map that
+// function builds for edge recovery is keyed on lower case alone, which is a
+// different key from this one, so the two cannot be shared.
+const filesByFoldedPathByGraph = new WeakMap<Graph, Map<string, string>>();
 
 // Exact graph membership. Only needed to give an exact hit precedence over the
-// lowercase fold below, which is why it is not part of Graph itself.
+// fold below, which is why it is not part of Graph itself.
 const filesSetByGraph = new WeakMap<Graph, Set<string>>();
 
 function graphFileSet(graph: Graph): Set<string> {
@@ -377,40 +373,56 @@ function graphFileSet(graph: Graph): Set<string> {
   return fileSet;
 }
 
+// The two axes on which a resolved path can disagree with the graph's own
+// spelling while still naming the same file on disk:
+//
+// - Unicode normalization, always. `readdir` reports whatever form the
+//   filesystem stores, while a specifier carries whatever form the author's
+//   editor wrote, and `realpath` preserves it rather than converting. macOS
+//   happily opens either, so "Café/inner.ts" written NFD resolves to a real
+//   file whose graph key is NFC - different bytes, same file. This is not
+//   case-sensitivity-dependent, so it is folded on every platform.
+// - Case, only where the filesystem ignores it. Folding case on a
+//   case-sensitive volume would merge two genuinely distinct files.
+function foldGraphPath(filePath: string): string {
+  const normalized = filePath.normalize("NFC");
+  return ts.sys.useCaseSensitiveFileNames
+    ? normalized
+    : normalized.toLowerCase();
+}
+
 /**
- * The graph's own casing for a resolved path, or the path unchanged when the
- * filesystem is case-sensitive. `fs.realpathSync` (what `safeRealpath` uses)
- * does not fold case on macOS - only the `.native` variant does - so a path
- * fresh out of `resolveSpecifier` carries whatever casing the specifier text
- * used, not the casing the file actually has on disk. Callers that key off a
- * file's directory (gates, ownership) need the latter or they miss real
- * boundaries and invent fake ones.
+ * The graph's own spelling of a resolved path, or the path unchanged when
+ * nothing in the graph matches it.
+ *
+ * `resolveSpecifier` hands back a path built from the specifier's own text, and
+ * `fs.realpathSync` (what `safeRealpath` uses) neither folds case on macOS - only
+ * its `.native` variant does - nor normalizes Unicode on any platform. So a path
+ * that resolved perfectly well can still differ byte-for-byte from the one the
+ * walk recorded. Callers that key off a file's directory (gates) need the
+ * recorded spelling or they miss real boundaries and invent fake ones.
  */
 export function canonicalGraphPath(graph: Graph, filePath: string): string {
-  if (ts.sys.useCaseSensitiveFileNames) {
-    return filePath;
-  }
-  // An exact member of graph.files is already in the graph's casing, so folding
-  // it would be a rewrite rather than a recovery - the same precedence
-  // buildGraphWithConfigs applies to resolveSpecifier's result. Two files
-  // differing only by case share one lowercase key and the map keeps whichever
-  // came last, so without this guard one of them silently becomes the other:
-  // an internal `Foo/Index.ts` folds onto the door `Foo/index.ts` and its
-  // crossing vanishes, and the door itself can fold onto an internal file and
-  // be reported as reaching past itself. Reachable whenever
-  // ts.sys.useCaseSensitiveFileNames disagrees with the volume actually holding
-  // the project - TypeScript probes for that where *it* is installed, not where
-  // the project lives (a case-sensitive mount under a case-insensitive host,
-  // Windows per-directory case sensitivity).
+  // An exact member of graph.files is already in the graph's spelling, so
+  // folding it would be a rewrite rather than a recovery - the same precedence
+  // buildGraphWithConfigs applies to resolveSpecifier's result. Two files can
+  // share one folded key (differing only by case on a filesystem that ignores
+  // case, or only by normalization on one that does not) and the map keeps
+  // whichever came last, so without this guard one of them silently becomes the
+  // other: an internal `Foo/Index.ts` folds onto the door `Foo/index.ts` and its
+  // crossing vanishes, and the door itself can fold onto an internal file and be
+  // reported as reaching past itself.
   if (graphFileSet(graph).has(filePath)) {
     return filePath;
   }
-  let byLowerCase = filesByLowerCaseByGraph.get(graph);
-  if (byLowerCase === undefined) {
-    byLowerCase = new Map(graph.files.map((file) => [file.toLowerCase(), file]));
-    filesByLowerCaseByGraph.set(graph, byLowerCase);
+  let byFoldedPath = filesByFoldedPathByGraph.get(graph);
+  if (byFoldedPath === undefined) {
+    byFoldedPath = new Map(
+      graph.files.map((file) => [foldGraphPath(file), file]),
+    );
+    filesByFoldedPathByGraph.set(graph, byFoldedPath);
   }
-  return byLowerCase.get(filePath.toLowerCase()) ?? filePath;
+  return byFoldedPath.get(foldGraphPath(filePath)) ?? filePath;
 }
 
 // Total, not a bare lookup: resolveSpecifier's settings parameter is optional
@@ -727,18 +739,13 @@ function buildGraphWithConfigs(
 
   const graph: Graph = { importers, files };
   settingsByGraph.set(graph, settings);
-  // Reuses the maps just built for edge recovery instead of letting
-  // canonicalGraphPath recompute identical ones from graph.files on first
-  // call - the graph, its lowercase index and its member set are known equal
-  // here for free. Both are stored under the same condition: the member set
-  // exists only to give an exact hit precedence over the lowercase fold, so on
-  // a case-sensitive filesystem, where canonicalGraphPath returns before
-  // consulting either, retaining it would just pin N strings per cached graph
-  // for the life of the process.
-  if (filesByLowerCase !== undefined) {
-    filesByLowerCaseByGraph.set(graph, filesByLowerCase);
-    filesSetByGraph.set(graph, fileSet);
-  }
+  // Reuses the member set just built for edge recovery, which is the one index
+  // canonicalGraphPath needs that is known equal here for free. Its folded index
+  // is deliberately not populated from `filesByLowerCase`: that map is keyed on
+  // lower case alone, whereas the fold also normalizes Unicode and skips the
+  // lower-casing entirely on a case-sensitive filesystem, so they are different
+  // keys and sharing them would reintroduce the mismatch this exists to close.
+  filesSetByGraph.set(graph, fileSet);
   return { graph, configPaths: settings.configPaths };
 }
 
