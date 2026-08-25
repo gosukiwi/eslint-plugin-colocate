@@ -17,11 +17,12 @@ src/rules/entry.ts        ESLint rule: import-boundary reports
 src/lib/graph.ts          walk, specifier extract, resolve, graph cache
 src/lib/gates.ts          entry detection, gate map, crossed-gate lookup
 src/lib/owners.ts         owners, shells, layers, colocation
+src/lib/paths.ts          is-this-path-inside-that-directory, one copy only
 src/lib/root.ts           resolve a configured root from any working directory
 src/lib/fs-safe.ts        every filesystem read: degrade to skip, never throw
 tests/fixtures/<name>/    one layout per scenario
 tests/helpers/lint-fixture.ts
-scripts/check-placement.ts  opt-in satisfiability sweep
+scripts/check-placement.ts  opt-in satisfiability sweep, both rules
 ```
 
 `plugin.meta.version` is hardcoded in `src/index.ts`. `tests/plugin-meta.test.ts` asserts it matches `package.json` — bump both.
@@ -92,8 +93,8 @@ Both the target *and* the importer must be passed through `canonicalGraphPath` b
 - Neither surface sees a **type-position** `import()` inside `graph.ts`'s edge extraction (`ts.isCallExpression` does not match an `ImportTypeNode`). `entry` *does* gate it, as of the `TSImportType` visitor, so this is now a graph-only gap.
 - `collectReExports` (`owners.ts`) never canonicalises case, so on a case-insensitive disk a wrong-case re-export makes `mismatchedEntry` miss, and a value+type split written with mixed casing counts as **two** siblings — silently reclassifying the index as a namespace barrel and contradicting the "still one sibling" rule below.
 - `stringLiteralText` (`graph.ts`) uses `ts.isStringLiteral`, which is false for a no-substitution template literal (`ts.isStringLiteralLike` is the one that matches). So `require(\`../helper\`)` and `` import(`../helper`) `` produce **no graph edge**, and one backtick silently erases a real `privateOutsideOwner`. `entry` gates both spellings; `ownership` does not.
-- `isInsideDir` is duplicated three times with the same `dir + path.sep` construction. Only `gates.ts`'s copy handles a `dir` that already ends in the separator. `owners.ts`'s copy still mishandles `root: "/"` (demonstrated: `privateOutsideOwner` fires on a file that *is* inside its only owner's folder), and `graph.ts`'s `isWithinRoot` has the same defect with a real consequence too — with `root: "/"`, `"/x".startsWith("//")` is false, so every symlink whose real path differs is dropped from the graph entirely. Fixing either changes `ownership` output, which is why neither was done alongside the `gates.ts` fix.
-- **Unicode normalization is not folded.** `canonicalGraphPath` recovers case but not NFC/NFD, and `realpath` preserves whichever form the specifier used while `readdir` returns the on-disk form. macOS resolves both, so a specifier spelling `Café/` in NFD against an NFC directory (or the reverse) silently produces **no finding** in either rule, with an otherwise identical NFC control reporting normally. Same failure class as the case handling this branch hardened, and the expensive direction for a ratchet: a false negative. Fixing it inside `canonicalGraphPath` would affect `entry` only; folding it into the graph's own index would change `ownership` output by surfacing edges it currently misses.
+- `isInsideDir` now has exactly one implementation, in `src/lib/paths.ts`, used by `gates.ts`, `owners.ts`, and (as `isAtOrInsideDir`) `graph.ts`. It previously existed in three copies sharing one defect: appending a separator to a `dir` that already ends in one builds `"//"` and matches nothing, so with `root: "/"` a file plainly inside a directory looked outside it. Do not reintroduce a local copy — that is how fixing one left the other two wrong.
+- **Unicode normalization** is folded by `canonicalGraphPath`, on every platform, because it is independent of whether the filesystem ignores case: `readdir` reports the stored form while a specifier carries whatever the author's editor wrote, and neither `realpath` nor the resolver converts between them. `graph.ts`'s own edge-recovery index is still keyed on lower case alone, so `ownership` remains NFC/NFD-blind — a specifier spelling `Café/` in NFD against an NFC directory silently drops the *edge*, and with it any ownership finding that depended on it. Fixing that would change `ownership` output by surfacing edges it currently misses.
 - A **door that is a symlink** to another in-root file dissolves its gate: `walkDir` records real paths, so `Feature/Feature.ts -> ../shared/impl.ts` leaves `Feature` with no entry and legalises every reach past it. Same inversion as ignoring a door, from a different cause.
 - Specifiers carrying a **query suffix** (`"./Feature/state.ts?raw"`, `"./x?foo=1"` — the Vite/webpack resource idiom) resolve to nothing and are invisible to both rules, so they launder a crossing.
 - `isEntryFile` strips `path.extname` before comparing against the directory name, so a **directory whose own name ends in a source extension** (`src/state.ts/state.ts`) gets no gate: `"state"` never equals `"state.ts"`.
@@ -107,8 +108,6 @@ Cache/staleness issues, all pre-existing and all verified still present:
 - Revalidation is bounded by `REVALIDATE_AFTER_MS`, so total stats scale as `files × pass-duration / 100 ms`. The `visitToken` fix removed a genuine `files²` term (one sweep per file with two rules enabled) but the residual is still quadratic in a long pass; it is a large constant-factor win, not an asymptotic one. Do not describe it as linear.
 - Because revalidation is time-bounded, `ownership` and `entry` can see **two different graph objects for the same file** when one file's parse spans more than `REVALIDATE_AFTER_MS` and a tracked file changes in between — `ownership` asks in `Program`, `entry` asks lazily at the first specifier, so the gap covers every other rule's work on that file. Each rule stays internally consistent (both memoise per file), but one file's report set is then not attributable to a single snapshot. This is inherent to bounded revalidation, and the trade was made deliberately: the alternative, trusting token identity without a time bound, produced *permanently* frozen output for any host that retains a `SourceCode`.
 - Passing a `visitToken` also **widens single-rule staleness relative to `main`**, which is the one measurable `ownership` behaviour change on this branch. Where `main` revalidated on every repeat call for the same file, a host that retains one `SourceCode` and re-verifies it now gets the cached graph for up to `REVALIDATE_AFTER_MS`. Bounded, and unreachable from the ESLint CLI (every parse mints a fresh token), but it is a difference, not merely an optimisation.
-- `check:placement` enables `ownership` only, so it cannot catch an unsatisfiable *access* report. That gap is not theoretical: the wrong-case-importer bug produced a report whose only fix was for a file to import its own door — a cycle, i.e. exactly the unsatisfiable-placement class this script exists to detect — and it went unnoticed. Extending it to `entry` would be worthwhile.
-
 ## Options
 
 Schema: `{ root?: string, ignore?: string[], layers?: string[] }`, `additionalProperties: false`. Unknown names must stay rejected.
@@ -149,7 +148,7 @@ Emitted on `node.body[0] ?? node` so file-level `eslint-disable` still applies u
 
 `mismatchedEntry` is narrow. Leave alone: index re-exporting the named entry (`Foo/index.ts` → `Foo/Foo.ts`); aggregator that also re-exports elsewhere (including an unresolvable specifier); self-reexport; index in `root`; nothing outside imports it; sibling excluded by `ignore`. Value+type split of the same module (`export { x }` + `export type { T }` from `./X`) is still **one** sibling.
 
-Every report must be **fixable**: there has to exist a location the rule accepts. That is what `check:placement` guards.
+Every report must be **fixable**: for `ownership` there has to exist a location the rule accepts, and for `entry` a specifier the importer can use. `check:placement` guards both — it sweeps `entry` by checking that no report names a module the importer already lives inside, since then the only "fix" would be importing its own door.
 
 ## Graph and resolution
 
@@ -161,7 +160,7 @@ Resolution goes through the TypeScript compiler (`getParsedCommandLineOfConfigFi
 
 Symlinks: follow while the real path stays inside `root`. Outside-root targets stay out of the graph (they cannot be reported; counting them as owners created phantom second owners). Sibling links to one real directory are both walked; nested links to the same real directory are entered at most once. Ignore applies to both the link path and the real path.
 
-Case-insensitive disks: recover import specifiers that differ in case from the on-disk path. Config/ESLint **paths** (`root`, linted filename) stay case-sensitive — `root: "SRC"` when the dir is `src` produces no findings.
+Case-insensitive disks: recover import specifiers that differ in case from the on-disk path. Unicode NFC/NFD differences are recovered too, on every platform, but only for `entry` (via `canonicalGraphPath`) — the graph's edge index is case-only, so `ownership` stays normalization-blind. Config/ESLint **paths** (`root`, linted filename) stay case-sensitive — `root: "SRC"` when the dir is `src` produces no findings.
 
 A file importing itself is not an ownership edge.
 
