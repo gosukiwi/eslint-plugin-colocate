@@ -2,12 +2,7 @@ import path from "node:path";
 import { safeRealpath, safeStat } from "./fs-safe.js";
 import { buildGraphWithConfigs, type Graph } from "./graph.js";
 import { findTsconfig } from "./resolve.js";
-import {
-  isExcludedPath,
-  isOutsideRoot,
-  isSourceFile,
-  isTestFile,
-} from "./scope.js";
+import { isInGraphScope, isSourceFile } from "./scope.js";
 
 // Compared by `===` against a value stored on the graph cache, so it must
 // exclude primitives: `unknown` would let a caller pass a string (a filename,
@@ -179,27 +174,20 @@ function trackedFilesChanged(snapshot: Snapshot): boolean {
   return false;
 }
 
-// Mirrors what walkDir would have collected. Anything walkDir skips must be
-// skipped here too, or linting one such file rebuilds the whole graph every
-// time because its stamp is never recorded.
+// Mirrors what walkDir would have collected, via the one statement of graph
+// membership in scope.ts. Anything walkDir skips must be skipped here too, or
+// linting one such file rebuilds the whole graph every time because its stamp is
+// never recorded.
 function isProductionGraphFile(
   currentFile: string,
   rootDir: string,
   ignoreGlobs: string[],
 ): boolean {
   const realRoot = safeRealpath(rootDir);
-  if (realRoot === undefined) {
+  if (realRoot === undefined || !isSourceFile(currentFile)) {
     return false;
   }
-
-  const relPath = path.relative(realRoot, currentFile);
-  if (isOutsideRoot(relPath)) {
-    return false;
-  }
-  if (!isSourceFile(currentFile) || isTestFile(relPath)) {
-    return false;
-  }
-  return !isExcludedPath(relPath, ignoreGlobs);
+  return isInGraphScope(path.relative(realRoot, currentFile), ignoreGlobs);
 }
 
 // Recognises a second rule asking about the same parse. Bounded by

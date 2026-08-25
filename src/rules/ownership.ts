@@ -1,26 +1,23 @@
 import path from "node:path";
 import type { Rule } from "eslint";
-import { safeReaddir, safeRealpath, safeStat } from "../lib/fs-safe.js";
-import { getGraph } from "../lib/graph-cache.js";
+import { safeReaddir, safeStat } from "../lib/fs-safe.js";
 import {
   collectReExports,
   getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
 } from "../lib/owners.js";
-import { resolveRootDir } from "../lib/root.js";
 import {
-  isExcludedPath,
-  isOutsideRoot,
   isSourceFile,
   isTestFile,
   matchesIgnore,
   SKIP_DIRS,
 } from "../lib/scope.js";
+import { resolveSubject } from "../lib/subject.js";
 
+// `root` and `ignore` are options here too, but resolveSubject is what reads
+// them - see the schema below, which is still the whole contract.
 interface RuleOptions {
-  root?: string;
-  ignore?: string[];
   layers?: string[];
 }
 
@@ -142,50 +139,25 @@ const rule: Rule.RuleModule = {
   },
   create(context) {
     const options = (context.options[0] ?? {}) as RuleOptions;
-    const rootOption = options.root ?? ".";
-    const ignore = options.ignore ?? [];
     const layers = options.layers ?? [];
-    const cwd = context.cwd;
 
     return {
       Program(node) {
-        const filename = context.filename;
-        if (!isSourceFile(filename)) {
+        // Resolved here rather than in create() for the same reason it always
+        // was: a configured root that does not exist, or a linted path that is
+        // not on disk (processors, --stdin-filename, a file deleted mid-run),
+        // means "nothing to say" rather than a crash.
+        const subject = resolveSubject(context);
+        if (subject === undefined) {
           return;
         }
 
-        // Resolved lazily: a configured root that does not exist, or a linted
-        // path that is not on disk (processors, --stdin-filename, a file
-        // deleted mid-run), means "nothing to say" rather than a crash.
-        const rootDir = resolveRootDir(rootOption, cwd);
-        const realRootDir = safeRealpath(rootDir);
-        const realFilename = safeRealpath(filename);
-        if (realRootDir === undefined || realFilename === undefined) {
-          return;
-        }
-
-        const relPath = path.relative(realRootDir, realFilename);
-        if (
-          isOutsideRoot(relPath) ||
-          isTestFile(relPath) ||
-          isExcludedPath(relPath, ignore)
-        ) {
-          return;
-        }
-
+        const { realRootDir, file: realFilename, ignore } = subject;
         const realDir = path.dirname(realFilename);
-        // context.sourceCode lets this share one graph build per file with
-        // colocate/entry when both are enabled - see the comment on
-        // CachedGraph.lastToken in graph.ts.
-        const graph = getGraph(
-          rootDir,
-          ignore,
-          realFilename,
-          context.sourceCode,
-        );
+        const graph = subject.graph();
         const layerDirs = resolveLayerDirectories(
           graph,
-          cwd,
+          context.cwd,
           layers,
           realRootDir,
         );
@@ -221,7 +193,10 @@ const rule: Rule.RuleModule = {
           });
         }
 
-        const basename = path.basename(filename, path.extname(filename));
+        const basename = path.basename(
+          context.filename,
+          path.extname(context.filename),
+        );
         if (basename !== "index" || realDir === realRootDir) {
           return;
         }
