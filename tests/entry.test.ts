@@ -9,6 +9,7 @@ import {
   collectRuleMessages,
   lintEntryFixture,
   makeESLint,
+  pick,
 } from "./helpers/lint-fixture.js";
 
 describe("entry rule", () => {
@@ -427,7 +428,7 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-type-import-node", {
       root: "src",
     });
-    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
       { file: "src/app.ts", line: 1, messageId: "reachesPastEntry" },
       { file: "src/app.ts", line: 2, messageId: "reachesPastEntry" },
     ]);
@@ -444,7 +445,7 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-template-specifier", {
       root: "src",
     });
-    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
       { file: "src/app.ts", line: 3, messageId: "reachesPastEntry" },
       { file: "src/app.ts", line: 4, messageId: "reachesPastEntry" },
     ]);
@@ -494,7 +495,7 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-deep-past-door", {
       root: "src",
     });
-    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+    expect(pick(messages, "file", "line", "message")).toEqual([
       {
         file: "src/app.ts",
         line: 1,
@@ -512,7 +513,7 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-sibling-prefix", {
       root: "src",
     });
-    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+    expect(pick(messages, "file", "line", "message")).toEqual([
       {
         file: "src/Featurex/importer.ts",
         line: 1,
@@ -532,7 +533,7 @@ describe("entry rule", () => {
     const messages = await lintEntryFixture("entry-paths-alias", {
       root: "src",
     });
-    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+    expect(pick(messages, "file", "line", "message")).toEqual([
       {
         file: "src/app.ts",
         line: 1,
@@ -561,7 +562,7 @@ describe("entry rule", () => {
       "entry-require-inner-createrequire",
       { root: "src" },
     );
-    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
       { file: "src/app.ts", line: 5, messageId: "reachesPastEntry" },
     ]);
   });

@@ -165,3 +165,26 @@ export async function lintEntryFixture(
 ): Promise<FixtureMessage[]> {
   return lintFixtureRule(name, "entry", ruleOptions, targets, options);
 }
+
+/**
+ * The named keys of each message, for a `toEqual` that pins some fields and
+ * ignores the rest.
+ *
+ * Six copies of `messages.map(({ file, line, messageId }) => ({ file, line,
+ * messageId }))` had accumulated in entry.test.ts. Keep choosing the keys per
+ * assertion rather than settling on one shape: which fields carry the point
+ * differs - `message` is the payload wherever the report names a module and a
+ * door, and noise wherever the interesting thing is which line was flagged.
+ */
+export function pick<K extends keyof FixtureMessage>(
+  messages: FixtureMessage[],
+  ...keys: K[]
+): Pick<FixtureMessage, K>[] {
+  return messages.map((message) => {
+    const picked = {} as Pick<FixtureMessage, K>;
+    for (const key of keys) {
+      picked[key] = message[key];
+    }
+    return picked;
+  });
+}

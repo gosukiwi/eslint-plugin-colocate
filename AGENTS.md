@@ -12,7 +12,7 @@ Peer: `eslint >= 9`. Developed against ESLint 10. TypeScript is both a runtime d
 
 ```
 src/index.ts              plugin export: meta + rules.ownership, rules.entry
-src/rules/ownership.ts    ESLint rule: options, reports, singleton/mismatchedEntry
+src/rules/ownership.ts    ESLint rule: options, messages, one report per finding
 src/rules/entry.ts        ESLint rule: import-boundary reports
 src/lib/scope.ts          what is in the model: source/test/ignore/skip predicates
 src/lib/subject.ts        the linted file, once it is known to be in the model
@@ -20,10 +20,11 @@ src/lib/walk.ts           the tree walk: every source file under a root
 src/lib/parse.ts          TypeScript parse + import-specifier extraction
 src/lib/require-binding.ts is this `require` the CJS one — both ASTs, one policy
 src/lib/resolve.ts        tsconfig load, `paths` aliasing, specifier resolution
-src/lib/graph.ts          Graph, build, path canonicalisation
+src/lib/graph.ts          Graph, build, membership, path canonicalisation
 src/lib/graph-cache.ts    one graph per process, revalidated once per lint pass
 src/lib/gates.ts          entry detection, gate map, crossed-gate lookup
 src/lib/owners.ts         owners, shells, layers, colocation
+src/lib/findings.ts       what `ownership` reports, in report order
 src/lib/paths.ts          is-this-path-inside-that-directory, one copy only
 src/lib/derived.ts        index derived from a graph, memoised for its lifetime
 src/lib/root.ts           resolve a configured root from any working directory
@@ -35,7 +36,9 @@ scripts/check-placement.ts  opt-in satisfiability sweep, both rules
 
 `plugin.meta.version` is hardcoded in `src/index.ts`. `tests/plugin-meta.test.ts` asserts it matches `package.json` — bump both.
 
-Every per-graph derived index — resolution settings, the member and folded-path indexes, gates, shells, layer directories — goes through `derivedFromGraph` in `src/lib/derived.ts`: do not hand-roll another `WeakMap<Graph, X>`, and do not hang feature state on `Graph` (it is `readonly` precisely so those indexes can be trusted for the graph's lifetime).
+Every per-graph derived index — resolution settings, the member and folded-path indexes, gates, shells, layer directories — goes through `derivedFromGraph` in `src/lib/derived.ts`: do not hand-roll another `WeakMap<Graph, X>`, and do not hang feature state on `Graph` (it is `readonly` precisely so those indexes can be trusted for the graph's lifetime). Membership is one of those indexes: ask `graphHasFile` from `graph.ts`, never `new Set(graph.files)` per lint.
+
+Neither rule file holds model logic; both read as adapters between ESLint and a module that can be asked without one. `entry.ts` asks `gates.ts`. `ownership.ts` asks `ownershipFindings` in `src/lib/findings.ts`, which composes `owners.ts`'s graph predicates with the two questions nothing else asks — is this directory a singleton wrapper (a `readdir` walk that never touches the graph) and is this index a stand-in for one sibling — and returns the messageIds **in report order**. That split is why `findings.ts` is not part of `owners.ts`: `owners.ts` answers "who owns this file" from the import graph and is consumed by several callers, while `findings.ts` is the one rule's report set.
 
 Rule docs URLs point at `#what-it-reports` (`ownership`) and `#the-entry-rule` (`entry`), both on `https://github.com/gosukiwi/eslint-plugin-colocate`. Keep headings in the README that GitHub slugifies to exactly those anchors — nothing catches a dangling one: `plugin-meta.test.ts` only asserts each URL starts with `https://`.
 
@@ -104,7 +107,7 @@ Both the target *and* the importer must be passed through `canonicalGraphPath` b
 - `collectReExports` (`owners.ts`) never canonicalises case, so on a case-insensitive disk a wrong-case re-export makes `mismatchedEntry` miss, and a value+type split written with mixed casing counts as **two** siblings — silently reclassifying the index as a namespace barrel and contradicting the "still one sibling" rule below.
 - `stringLiteralText` (`parse.ts`) uses `ts.isStringLiteral`, which is false for a no-substitution template literal (`ts.isStringLiteralLike` is the one that matches). So `require(\`../helper\`)` and `` import(`../helper`) `` produce **no graph edge**, and one backtick silently erases a real `privateOutsideOwner`. `entry` gates both spellings; `ownership` does not.
 - `isInsideDir` now has exactly one implementation, in `src/lib/paths.ts`, used by `gates.ts`, `owners.ts`, and (as `isAtOrInsideDir`) `walk.ts`. It previously existed in three copies sharing one defect: appending a separator to a `dir` that already ends in one builds `"//"` and matches nothing, so with `root: "/"` a file plainly inside a directory looked outside it. Do not reintroduce a local copy — that is how fixing one left the other two wrong.
-- "Is this path in the model" is `isInGraphScope` in `src/lib/scope.ts` and nowhere else — the `isOutsideRoot`/`isTestFile`/`isExcludedPath` disjunction previously sat inline in four places (`graph-cache.ts`, `ownership.ts`, and twice in `entry.ts`). The rule-side preamble around it — default the root, `resolveRootDir`, realpath root and file, tolerate either being absent, reject an out-of-scope file — is `resolveSubject` in `src/lib/subject.ts` and nowhere else. Do not reintroduce a local copy of either; use `subject.covers` for a resolved target. Two asymmetries inside `Subject` are load-bearing: `rootDir` is resolved but **not** realpathed because it is half the graph cache key, and the linted file is scope-tested but not extension-tested again after realpath (so a `.ts` symlink pointing at a `.txt` file is still a subject), whereas resolved targets are.
+- "Is this path in the model" is `isInGraphScope` in `src/lib/scope.ts` and nowhere else — the `isOutsideRoot`/`isTestFile`/`isExcludedPath` disjunction previously sat inline in four places (`graph-cache.ts`, `ownership.ts`, and twice in `entry.ts`). The rule-side preamble around it — default the root, `resolveRootDir`, realpath root and file, tolerate either being absent, reject an out-of-scope file — is `resolveSubject` in `src/lib/subject.ts` and nowhere else. Do not reintroduce a local copy of either; use `subject.covers` for a resolved target. Two asymmetries inside `Subject` are load-bearing: `rootDir` is resolved but **not** realpathed because it is half the graph cache key, and the linted file is scope-tested but not extension-tested again after realpath (so a `.ts` symlink pointing at a `.txt` file is still a subject), whereas resolved targets are. A third is merely preserved: `Subject.lintedPath` is the un-realpathed path, and `mismatchedEntry` asks "is this an index?" of *it* while every other check uses the realpathed `file`, so a symlink named `index.ts` pointing at a differently-named module is an index for that one decision only. That has always been the behaviour; do not use `lintedPath` for anything else, and settle the inconsistency deliberately if you touch it.
 - **Unicode normalization** is folded by `canonicalGraphPath`, on every platform, because it is independent of whether the filesystem ignores case: `readdir` reports the stored form while a specifier carries whatever the author's editor wrote, and neither `realpath` nor the resolver converts between them. the builder's own edge-recovery index in `graph.ts` is still keyed on lower case alone, so `ownership` remains NFC/NFD-blind — a specifier spelling `Café/` in NFD against an NFC directory silently drops the *edge*, and with it any ownership finding that depended on it. Fixing that would change `ownership` output by surfacing edges it currently misses.
 - A **door that is a symlink** to another in-root file dissolves its gate: `walkDir` records real paths, so `Feature/Feature.ts -> ../shared/impl.ts` leaves `Feature` with no entry and legalises every reach past it. Same inversion as ignoring a door, from a different cause.
 - Specifiers carrying a **query suffix** (`"./Feature/state.ts?raw"`, `"./x?foo=1"` — the Vite/webpack resource idiom) resolve to nothing and are invisible to both rules, so they launder a crossing.
@@ -148,6 +151,8 @@ For `colocate/entry`, `ignore` does more than silence: gates are derived from `g
 ## Reports
 
 Emitted on `node.body[0] ?? node` so file-level `eslint-disable` still applies under ESLint 10 (Program-node reports are dropped there). Cover this with both `@typescript-eslint/parser` and Espree (`eslint-disable-ownership`, `eslint-disable-ownership-js`).
+
+Report **order** for one file is `singletonFolder`, `privateOutsideOwner`, the shared issue, `mismatchedEntry` — the order `ownershipFindings` pushes them in. Fixture assertions sort, so they will not catch a reordering; `check:placement`'s per-placement matrix and a raw differential will. Nothing short-circuits: a file can be a singleton wrapper *and* misplaced relative to its owner, and each report names a different edit.
 
 | messageId | when |
 | --- | --- |
@@ -207,6 +212,8 @@ expect(sortMessages(messages)).toEqual([
 ```
 
 `collectMessages` throws if the fixture fails to parse — empty results must not mean "parse error". Prefer the TypeScript parser; add an Espree case only when ESLint-version behaviour differs (disable comments).
+
+Entry assertions get whole `FixtureMessage` objects; narrow them with `pick(messages, "file", "line", "messageId")` from the same helper rather than a local `.map`. Choose the keys per assertion — `message` is the payload wherever the report names a module and a door (`entry-paths-alias`, `entry-sibling-prefix`, `entry-deep-past-door` assert it in full), and noise wherever the point is which line was flagged.
 
 Unit/integration split:
 

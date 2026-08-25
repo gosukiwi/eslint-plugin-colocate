@@ -27,6 +27,14 @@ export interface Subject {
   readonly realRootDir: string;
   /** The linted file, realpathed. */
   readonly file: string;
+  /**
+   * The same file under the path ESLint handed over, NOT realpathed. Every path
+   * comparison uses `file`; this exists because ownership's `mismatchedEntry`
+   * decision asks "is this an index?" of the linted path and always has, and a
+   * symlink named `index.ts` pointing at a differently-named module answers the
+   * two questions differently. Do not reach for it for anything else.
+   */
+  readonly lintedPath: string;
   readonly ignore: string[];
   /**
    * Built on first use and memoised for this file, so a file that asks nothing
@@ -80,6 +88,7 @@ export function resolveSubject(context: Rule.RuleContext): Subject | undefined {
     rootDir,
     realRootDir,
     file,
+    lintedPath: context.filename,
     ignore,
     graph: () => (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
     covers: (filePath) =>

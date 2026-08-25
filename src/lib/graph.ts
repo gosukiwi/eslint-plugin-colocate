@@ -18,9 +18,23 @@ export interface Graph {
   readonly files: readonly string[];
 }
 
-// Exact graph membership. Only needed to give an exact hit precedence over the
-// fold below, which is why it is not part of Graph itself.
+// Exact graph membership, memoised and primed by the builder. It is not part of
+// Graph itself for the same reason none of the other indexes are: a graph is the
+// raw pair of tables, and everything derived from it lives in a weak table keyed
+// on that pair (see derived.ts).
 const graphFileSet = derivedFromGraph((graph) => new Set(graph.files));
+
+/**
+ * Whether the graph contains this exact path.
+ *
+ * Exact on purpose: a caller asking "does the model know this module" is
+ * checking a path it got from the graph or from `collectReExports`, and folding
+ * would answer for a different file. Use `canonicalGraphPath` first when the
+ * path came from a specifier instead.
+ */
+export function graphHasFile(graph: Graph, filePath: string): boolean {
+  return graphFileSet(graph).has(filePath);
+}
 
 // The two axes on which a resolved path can disagree with the graph's own
 // spelling while still naming the same file on disk:
