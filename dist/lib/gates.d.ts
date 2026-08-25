@@ -30,10 +30,13 @@ export interface CrossedGate {
  * and excludes the importer is therefore the innermost such gate.
  *
  * Precondition: `target`, `importer`, and `rootDir` must already be in the
- * graph's own casing. `importer` and `rootDir` always are (they come from
- * ESLint/config paths, realpath'd). `target` is not, straight out of
- * `resolveSpecifier`, on a case-insensitive disk - the compiler hands back
- * whatever casing the specifier text used, which matches no gate key. Pass it
- * through `canonicalGraphPath` first.
+ * graph's own casing. `rootDir` comes from config and is compared only against
+ * itself, so it needs no help. Neither `target` nor `importer` is canonical on
+ * arrival on a case-insensitive disk: `resolveSpecifier` hands back whatever
+ * casing the specifier text used, and `fs.realpathSync` does not fold case, so
+ * the linted path ESLint reports carries whatever casing invoked it. Pass both
+ * through `canonicalGraphPath` first - a non-canonical `importer` makes
+ * `isInsideDir` miss, which reports a file for reaching into the very
+ * directory it lives in and names a fix that would import its own door.
  */
 export declare function findCrossedGate(target: string, importer: string, graph: Graph, rootDir: string): CrossedGate | undefined;

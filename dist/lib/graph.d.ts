@@ -31,5 +31,6 @@ export declare function getGraphResolutionSettings(graph: Graph, rootDir: string
 export declare function findTsconfig(rootDir: string): string | undefined;
 export declare function resolveSpecifier(specifier: string, fromDir: string, settings?: ResolutionSettings): string | undefined;
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
+export declare const REVALIDATE_AFTER_MS = 100;
 export declare function stampIsAmbiguous(mtimeMs: number, builtAt: number, coarseTimestamps: boolean): boolean;
 export declare function getGraph(rootDir: string, ignoreGlobs: string[], currentFile: string, visitToken?: VisitToken): Graph;

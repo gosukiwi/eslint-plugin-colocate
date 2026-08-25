@@ -270,6 +270,17 @@ const settingsByGraph = new WeakMap();
 // disks never populate it at all), which is why the accessor recomputes on
 // demand rather than assuming a hit.
 const filesByLowerCaseByGraph = new WeakMap();
+// Exact graph membership. Only needed to give an exact hit precedence over the
+// lowercase fold below, which is why it is not part of Graph itself.
+const filesSetByGraph = new WeakMap();
+function graphFileSet(graph) {
+    let fileSet = filesSetByGraph.get(graph);
+    if (fileSet === undefined) {
+        fileSet = new Set(graph.files);
+        filesSetByGraph.set(graph, fileSet);
+    }
+    return fileSet;
+}
 /**
  * The graph's own casing for a resolved path, or the path unchanged when the
  * filesystem is case-sensitive. `fs.realpathSync` (what `safeRealpath` uses)
@@ -281,6 +292,21 @@ const filesByLowerCaseByGraph = new WeakMap();
  */
 export function canonicalGraphPath(graph, filePath) {
     if (ts.sys.useCaseSensitiveFileNames) {
+        return filePath;
+    }
+    // An exact member of graph.files is already in the graph's casing, so folding
+    // it would be a rewrite rather than a recovery - the same precedence
+    // buildGraphWithConfigs applies to resolveSpecifier's result. Two files
+    // differing only by case share one lowercase key and the map keeps whichever
+    // came last, so without this guard one of them silently becomes the other:
+    // an internal `Foo/Index.ts` folds onto the door `Foo/index.ts` and its
+    // crossing vanishes, and the door itself can fold onto an internal file and
+    // be reported as reaching past itself. Reachable whenever
+    // ts.sys.useCaseSensitiveFileNames disagrees with the volume actually holding
+    // the project - TypeScript probes for that where *it* is installed, not where
+    // the project lives (a case-sensitive mount under a case-insensitive host,
+    // Windows per-directory case sensitivity).
+    if (graphFileSet(graph).has(filePath)) {
         return filePath;
     }
     let byLowerCase = filesByLowerCaseByGraph.get(graph);
@@ -433,7 +459,19 @@ function aliasCandidates(specifier, options) {
     const matched = star === -1
         ? ""
         : specifier.slice(star, specifier.length - (pattern.length - star - 1));
-    return (paths[pattern] ?? []).map((target) => {
+    // tsc reports a diagnostic for a malformed `paths` entry but still hands the
+    // raw value straight back in options.paths, so a one-bracket typo
+    // (`"@/*": "src/*"` instead of `["src/*"]`) or a non-string target arrives
+    // here exactly as written. Taken on trust, that threw a TypeError out of the
+    // rule and killed the entire lint run with no results at all - the one thing
+    // the filesystem handling everywhere else is careful never to do.
+    const targets = paths[pattern];
+    if (!Array.isArray(targets)) {
+        return [];
+    }
+    return targets
+        .filter((target) => typeof target === "string")
+        .map((target) => {
         const targetStar = target.indexOf("*");
         const mapped = targetStar === -1
             ? target
@@ -514,18 +552,26 @@ function buildGraphWithConfigs(rootDir, ignoreGlobs) {
     }
     const graph = { importers, files };
     settingsByGraph.set(graph, settings);
-    // Reuses the map just built for edge recovery instead of letting
-    // canonicalGraphPath recompute an identical one from graph.files on first
-    // call - the graph and its lowercase index are known equal here for free.
+    // Reuses the maps just built for edge recovery instead of letting
+    // canonicalGraphPath recompute identical ones from graph.files on first
+    // call - the graph, its lowercase index and its member set are known equal
+    // here for free. Both are stored under the same condition: the member set
+    // exists only to give an exact hit precedence over the lowercase fold, so on
+    // a case-sensitive filesystem, where canonicalGraphPath returns before
+    // consulting either, retaining it would just pin N strings per cached graph
+    // for the life of the process.
     if (filesByLowerCase !== undefined) {
         filesByLowerCaseByGraph.set(graph, filesByLowerCase);
+        filesSetByGraph.set(graph, fileSet);
     }
     return { graph, configPaths: settings.configPaths };
 }
 // Upper bound on how long a stale graph can survive a sequence of lints that
 // never revisits a file. Well below the time between a human edit and the next
-// lint, and far above the gap between two files in one pass.
-const REVALIDATE_AFTER_MS = 100;
+// lint, and far above the gap between two files in one pass. Exported so a test
+// asserting behaviour at the boundary sleeps against the real value rather than
+// a copy that silently stops matching if this changes.
+export const REVALIDATE_AFTER_MS = 100;
 // On a filesystem that reports whole-second timestamps, a write landing in the
 // same second as the build is indistinguishable from one that preceded it, so
 // such a stamp cannot be trusted. Comparing against the build time rather than
@@ -659,10 +705,23 @@ export function getGraph(rootDir, ignoreGlobs, currentFile, visitToken) {
     // function did not already validate, so this skips tsconfigNeedsRebuild's
     // realpath + findTsconfig walk + config stat and needsRebuild's own
     // realpath entirely, not just the pass-boundary bookkeeping inside it.
+    //
+    // Bounded by REVALIDATE_AFTER_MS as well, because token identity proves
+    // "same SourceCode object", not "same moment". A host may retain one
+    // SourceCode and verify it repeatedly - Linter#verify accepts a SourceCode
+    // instance and passes its identity through to context.sourceCode - and an
+    // unbounded skip made that a permanently frozen graph: every later verify
+    // matched the token, so neither the tsconfig check nor the tracked-file
+    // sweep ever ran again, and a report could not be made to go away by
+    // editing any file other than the one being linted. The elapsed-time bound
+    // costs nothing inside a real parse (two rules are microseconds apart) and
+    // puts the worst case back on the same footing as every other staleness
+    // window in this cache.
     if (cached !== undefined &&
         visitToken !== undefined &&
         cached.lastFile === currentFile &&
-        cached.lastToken?.deref() === visitToken) {
+        cached.lastToken?.deref() === visitToken &&
+        Date.now() - cached.validatedAt < REVALIDATE_AFTER_MS) {
         return cached.graph;
     }
     if (cached !== undefined &&
