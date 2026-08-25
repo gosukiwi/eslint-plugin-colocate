@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import tsParser from "@typescript-eslint/parser";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
 import {
@@ -415,4 +416,177 @@ describe("entry rule", () => {
     });
     expect(collectRuleMessages(cwd, results, "entry")).toEqual([]);
   });
+
+  // `import("./x").T` and `typeof import("./x")` are TSImportType, a different
+  // node from ImportExpression, so they reached no visitor at all while the
+  // equivalent `import type { T } from "./x"` was gated. The rule's answer must
+  // not depend on which spelling the author picked - the ungated one is what
+  // generated code and files avoiding top-level imports emit. Line 3 is the
+  // negative control: the same inline spelling landing ON the door is legal.
+  it("reports an inline type import that reaches past the entry", async () => {
+    const messages = await lintEntryFixture("entry-type-import-node", {
+      root: "src",
+    });
+    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+      { file: "src/app.ts", line: 1, messageId: "reachesPastEntry" },
+      { file: "src/app.ts", line: 2, messageId: "reachesPastEntry" },
+    ]);
+  });
+
+  // A no-substitution template literal is as static as a quoted string, so
+  // leaving it out made backticks a one-character way to launder every crossing
+  // in a file past a rule whose entire purpose is a ratchet. The other two lines
+  // pin the boundaries of that: line 4 resolves only if the *cooked* value is
+  // used (`raw` would leave the p escape in the specifier and resolve
+  // nothing), and line 5 must stay out because a substituted template is not
+  // statically known.
+  it("reports a static template-literal specifier and ignores a substituted one", async () => {
+    const messages = await lintEntryFixture("entry-template-specifier", {
+      root: "src",
+    });
+    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+      { file: "src/app.ts", line: 3, messageId: "reachesPastEntry" },
+      { file: "src/app.ts", line: 4, messageId: "reachesPastEntry" },
+    ]);
+  });
+
+  // Complements entry-dts-not-a-door, which pins that a .d.ts is not a *door*.
+  // This pins that it is not a *target* either: resolveSpecifier's own probe
+  // still finds types.d.ts for a "./types.d" specifier, and reporting it named
+  // a door that will never re-export the type.
+  it("does not report a declaration file as a target", async () => {
+    const messages = await lintEntryFixture("entry-dts-target", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // `var require = createRequire(url)` followed by `var require = 1` leaves
+  // `require` holding a number at the call, so the call loads nothing and there
+  // is no crossing to report. Checking whether *any* def was a createRequire
+  // was order-blind and reported one.
+  it("stays silent when a createRequire binding is later clobbered", async () => {
+    const messages = await lintEntryFixture("entry-require-redeclared", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // The deliberate cost of the check above, recorded so a future reader does not
+  // read this silence as the order-blind bug coming back: here `require` really
+  // is the real one at the call, and requiring *every* def to be a createRequire
+  // call gives up the finding. Accepted because a missed report beats a wrong
+  // one, and because both shapes need `require` declared twice in one scope.
+  it("gives up the finding when a clobbered require is later reassigned (known false negative)", async () => {
+    const messages = await lintEntryFixture("entry-require-redeclared-mirror", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // Forces findCrossedGate's upward walk to iterate: the target's own directory
+  // (Feature/utils) is not a gate, so the gate is only found one level further
+  // up. Every other fixture puts the target directly inside its gate, which the
+  // first iteration already answers, so nothing pinned the loop - even though
+  // this is the README's headline case. Asserts the whole message, which ties
+  // target, module and entry together.
+  it("reports a target several levels below the door", async () => {
+    const messages = await lintEntryFixture("entry-deep-past-door", {
+      root: "src",
+    });
+    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+      {
+        file: "src/app.ts",
+        line: 1,
+        message:
+          "'Feature/utils/deep.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // Featurex is not inside Feature, and the only thing keeping them apart is the
+  // trailing separator in isInsideDir's comparison. Dropping it would make a
+  // prefix-sharing sibling look like it lives inside the gate and silently lose
+  // this report. The message is asserted too, so the named module cannot drift.
+  it("reports an importer in a sibling directory sharing a name prefix", async () => {
+    const messages = await lintEntryFixture("entry-sibling-prefix", {
+      root: "src",
+    });
+    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+      {
+        file: "src/Featurex/importer.ts",
+        line: 1,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // The rule resolves specifiers with the graph's own settings, which is what
+  // carries the project's `paths`. Losing them would fall back to a lenient
+  // default with no `paths` at all, so every aliased import would resolve to
+  // nothing and the rule would go quiet without anything looking broken. The
+  // fixture's own tsconfig.json is what makes `@/` resolve - no other entry
+  // fixture has one, so nothing else covers aliased resolution.
+  it("reports through a tsconfig paths alias", async () => {
+    const messages = await lintEntryFixture("entry-paths-alias", {
+      root: "src",
+    });
+    expect(messages.map(({ file, line, message }) => ({ file, line, message }))).toEqual([
+      {
+        file: "src/app.ts",
+        line: 1,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
+  // The shadowing binding is a parameter of an enclosing function and the call
+  // sits in a nested arrow, so only a walk up the scope chain finds it - an
+  // immediate-scope-only check would report this.
+  it("stays silent for a require shadowed in an enclosing scope", async () => {
+    const messages = await lintEntryFixture("entry-require-nested-scope", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
+  // The mirror case, and the one graph.ts gets wrong (see AGENTS.md Known
+  // issues): an inner `const require = createRequire(...)` IS the real require
+  // even though an unrelated plain `require` exists in an outer scope. Shadowing
+  // is lexical, not sticky - the nearest binding decides.
+  it("reports an inner createRequire beneath an outer shadowed require", async () => {
+    const messages = await lintEntryFixture(
+      "entry-require-inner-createrequire",
+      { root: "src" },
+    );
+    expect(messages.map(({ file, line, messageId }) => ({ file, line, messageId }))).toEqual([
+      { file: "src/app.ts", line: 5, messageId: "reachesPastEntry" },
+    ]);
+  });
+
+  // The importer needs the graph's casing for the same reason the target does:
+  // realpath does not fold case, so a wrong-case linted path left isInsideDir
+  // comparing it against the gate's real key. It missed, and the file was
+  // reported for reaching into the very directory it lives in - a report whose
+  // only "fix" is to import its own door, i.e. a cycle. Note the contrast with a
+  // wrong-case *root*, which is documented to produce no findings; this produced
+  // wrong ones.
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "stays silent when the importer is linted through a wrong-case path",
+    async () => {
+      const cwd = path.join(
+        fileURLToPath(new URL(".", import.meta.url)),
+        "fixtures/entry-importer-inside-ok",
+      );
+      // Feature/Feature.ts imports its own sibling ./helper, so it is inside the
+      // gate and must never be reported - however the path reaching the rule is
+      // spelled.
+      const results = await makeESLint(cwd, { root: "src" }, {
+        rule: "entry",
+      }).lintFiles(["src/feature/Feature.ts"]);
+      expect(collectRuleMessages(cwd, results, "entry")).toEqual([]);
+    },
+  );
 });

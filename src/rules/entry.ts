@@ -53,7 +53,16 @@ function requireIsShadowed(sourceCode: SourceCode, node: ESTree.Node): boolean {
     // CJS one. Only a variable with an actual definition here (parameter,
     // `const`, `function require() {}`, ...) can shadow it.
     if (variable !== undefined && variable.defs.length > 0) {
-      return !variable.defs.some((def) => {
+      // Every def has to be a createRequire binding for the name to still be
+      // the real require. `defs.some` was order-blind: with `var require =
+      // createRequire(url)` followed by `var require = 1`, the call loads
+      // nothing at all, yet a some() check still called it genuine and
+      // reported a crossing that cannot happen. Requiring all of them trades
+      // that false positive for a false negative in the mirror case (plain
+      // first, createRequire second) - the right way round for a lint rule,
+      // and just as rare, since both need `require` declared twice in one
+      // scope.
+      return !variable.defs.every((def) => {
         const declarator = def.node as { type: string; init?: ESTree.Node | null };
         return (
           declarator.type === "VariableDeclarator" &&
@@ -128,10 +137,18 @@ const rule: Rule.RuleModule = {
     // which rule asks first or whether either is lazy.
     let graph: Graph | undefined;
     let settings: ResolutionSettings | undefined;
+    let importer: string | undefined;
 
     const reportIfPastEntry = (specifier: string, node: ESTree.Node): void => {
       graph ??= getGraph(rootDir, ignore, realFilename, context.sourceCode);
       settings ??= getGraphResolutionSettings(graph, rootDir);
+      // The importer needs the graph's casing for the same reason the target
+      // does: realpath does not fold case, so linting `src/f/other.ts` on a
+      // case-insensitive disk left isInsideDir comparing a lower-cased path
+      // against the gate's real key. It missed, and the file was told to reach
+      // into the very directory it lives in - a report whose only fix is to
+      // import its own door, i.e. a cycle.
+      importer ??= canonicalGraphPath(graph, realFilename);
       const resolved = resolveSpecifier(specifier, fromDir, settings);
       if (resolved === undefined) {
         return;
@@ -144,6 +161,11 @@ const rule: Rule.RuleModule = {
 
       const targetRel = path.relative(realRootDir, target);
       if (
+        // Declaration files are outside the model: the walk skips them, they can
+        // never be gates, and resolveSpecifier's own probe will still find
+        // `types.d.ts` for a "./types.d" specifier - which reported a crossing
+        // and named a door that will never re-export the type.
+        !isSourceFile(target) ||
         isOutsideRoot(targetRel) ||
         isTestFile(targetRel) ||
         isExcludedPath(targetRel, ignore)
@@ -151,7 +173,7 @@ const rule: Rule.RuleModule = {
         return;
       }
 
-      const crossed = findCrossedGate(target, realFilename, graph, realRootDir);
+      const crossed = findCrossedGate(target, importer, graph, realRootDir);
       if (crossed === undefined) {
         return;
       }
@@ -167,16 +189,35 @@ const rule: Rule.RuleModule = {
       });
     };
 
-    const checkSource = (source: ESTree.Node | null | undefined): void => {
+    // A no-substitution template literal is every bit as static as a quoted
+    // string - import(`./x`) loads exactly what import("./x") loads - so it is
+    // accepted here. Left out, backticks were a one-character way to launder
+    // every crossing in a file past a rule whose whole purpose is a ratchet.
+    // One with substitutions is not statically known and stays out, as does
+    // anything else non-literal (concatenation, `as string`, identifiers).
+    const staticSpecifier = (source: ESTree.Node): string | undefined => {
+      if (source.type === "Literal") {
+        return typeof source.value === "string" ? source.value : undefined;
+      }
       if (
-        source === null ||
-        source === undefined ||
-        source.type !== "Literal" ||
-        typeof source.value !== "string"
+        source.type === "TemplateLiteral" &&
+        source.expressions.length === 0 &&
+        source.quasis.length === 1
       ) {
+        return source.quasis[0]?.value.cooked ?? undefined;
+      }
+      return undefined;
+    };
+
+    const checkSource = (source: ESTree.Node | null | undefined): void => {
+      if (source === null || source === undefined) {
         return;
       }
-      reportIfPastEntry(source.value, source);
+      const specifier = staticSpecifier(source);
+      if (specifier === undefined) {
+        return;
+      }
+      reportIfPastEntry(specifier, source);
     };
 
     return {
@@ -199,6 +240,28 @@ const rule: Rule.RuleModule = {
       },
       ImportExpression(node) {
         checkSource(node.source);
+      },
+      // `import("./x").T` and `typeof import("./x")` are TSImportType, not
+      // ImportExpression. Without this visitor the rule's answer depended on
+      // which of two equivalent type-import spellings the author picked:
+      // `import type { T } from "./x"` was gated and the inline form - what
+      // generated code and files avoiding top-level imports emit - was not,
+      // contradicting the "type-only imports treated like value imports"
+      // invariant. Untyped for the same reason as TSImportEqualsDeclaration.
+      //
+      // Both AST shapes are handled because the property moved: `source`
+      // exists only from @typescript-eslint/parser 8.48, and before that the
+      // specifier sits on `argument`, a TSLiteralType wrapping the same
+      // Literal. This plugin pins no parser version (eslint is its only peer
+      // dependency), so reading `source` alone left the visitor silently
+      // inert - checkSource would just receive undefined and return - on every
+      // 8.x below 8.48 that a user is free to install.
+      TSImportType(node: unknown) {
+        const typeImport = node as {
+          source?: ESTree.Node;
+          argument?: { literal?: ESTree.Node };
+        };
+        checkSource(typeImport.source ?? typeImport.argument?.literal);
       },
       // Not an ESTree node, so it arrives untyped from the TypeScript parser -
       // `unknown` is honest about that, and RuleListener's index signature

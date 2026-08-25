@@ -126,4 +126,40 @@ describe("findCrossedGate", () => {
       findCrossedGate(at("tabs", "One.ts"), at("app.ts"), flat, root),
     ).toBeUndefined();
   });
+
+  // A gate directory that already ends in the separator is the filesystem root,
+  // where appending another one builds "//" and matches nothing - so an importer
+  // plainly inside the gate looked outside it. Reachable because resolveRootDir
+  // returns an absolute root verbatim, so root: "/" survives to here.
+  it("treats an importer inside a root-level gate as inside it", () => {
+    const fsRoot = path.sep;
+    const atRoot = (name: string): string => path.join(fsRoot, name);
+    const rooted = graphOf(atRoot("index.ts"), atRoot("other.ts"));
+    expect(
+      findCrossedGate(atRoot("other.ts"), atRoot("importer.ts"), rooted, fsRoot),
+    ).toBeUndefined();
+  });
+
+  // Featurex is not inside Feature, and the trailing separator in isInsideDir's
+  // comparison is the only thing keeping them apart: without it a prefix-sharing
+  // sibling would look like it lives inside the gate and this report would be
+  // silently dropped.
+  it("does not treat a name-prefix sibling as inside the gate", () => {
+    const siblings = graphOf(
+      at("Feature", "Feature.ts"),
+      at("Feature", "helper.ts"),
+      at("Featurex", "importer.ts"),
+    );
+    expect(
+      findCrossedGate(
+        at("Feature", "helper.ts"),
+        at("Featurex", "importer.ts"),
+        siblings,
+        root,
+      ),
+    ).toEqual({
+      dir: at("Feature"),
+      entry: at("Feature", "Feature.ts"),
+    });
+  });
 });

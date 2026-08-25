@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Linter } from "eslint";
+import tsParser from "@typescript-eslint/parser";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { REVALIDATE_AFTER_MS } from "../src/lib/graph.js";
+import plugin from "../src/index.js";
 import { collectMessages, makeESLint } from "./helpers/lint-fixture.js";
 
 const created: string[] = [];
@@ -188,5 +192,51 @@ describe("graph invalidation within one process", () => {
     expect(collectMessages(dir, second)).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
     ]);
+  });
+
+  // Token identity proves "same SourceCode object", not "same moment". A host
+  // may hold one SourceCode and verify it repeatedly - Linter#verify accepts a
+  // SourceCode instance and hands its identity straight through to
+  // context.sourceCode - and an unbounded short-circuit turned that into a
+  // permanently frozen graph: every later verify matched the token, so neither
+  // the tsconfig check nor the tracked-file sweep ever ran again and the report
+  // could not be cleared by editing any file other than the linted one. Uses
+  // Linter rather than the ESLint class because only Linter lets a caller supply
+  // the SourceCode and thus pin the token across passes.
+  it("revalidates when one retained SourceCode is verified again after an edit", async () => {
+    const dir = project({
+      ...APP,
+      "src/pages/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+    });
+    const helper = path.join(dir, "src/pages/helper.ts");
+    const linter = new Linter({ cwd: dir });
+    const config = {
+      files: ["**/*.ts"],
+      languageOptions: {
+        parser: tsParser,
+        parserOptions: { sourceType: "module", ecmaVersion: 2022 },
+      },
+      plugins: { colocate: plugin },
+      rules: { "colocate/ownership": ["error", { root: "src" }] },
+    } as unknown as Linter.Config;
+
+    const ids = (messages: Linter.LintMessage[]): (string | undefined)[] =>
+      messages.map((message) => message.messageId);
+
+    expect(
+      ids(linter.verify(fs.readFileSync(helper, "utf8"), config, helper)),
+    ).toEqual(["privateOutsideOwner"]);
+
+    const retained = linter.getSourceCode();
+    write(dir, { "src/pages/MyPage/MyPage.ts": "export const p = 1;\n" });
+    // Past REVALIDATE_AFTER_MS, so a correctly bounded short-circuit must let
+    // the tracked-file sweep run even though file and token both still match.
+    // Sleeps against the real constant rather than a copy of its value, so
+    // raising it cannot turn this into a mystery failure here.
+    await new Promise((resolve) =>
+      setTimeout(resolve, REVALIDATE_AFTER_MS + 50),
+    );
+
+    expect(ids(linter.verify(retained, config, helper))).toEqual([]);
   });
 });

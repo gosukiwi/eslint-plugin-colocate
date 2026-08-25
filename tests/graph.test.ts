@@ -277,6 +277,38 @@ describe("canonicalGraphPath", () => {
       "/root/Nowhere/Nowhere.ts",
     );
   });
+
+  // Hand-built rather than written to disk on purpose: the two files differ only
+  // by case, which a case-insensitive volume cannot hold at once. The graph can
+  // still contain both, because ts.sys.useCaseSensitiveFileNames is probed where
+  // TypeScript itself is installed, not where the project lives - a
+  // case-sensitive mount under a case-insensitive host, or Windows per-directory
+  // case sensitivity, makes this the real shape.
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "prefers an exact graph member over the lowercase fold",
+    () => {
+      // Foo/index.ts is the door; Foo/Index.ts is an ordinary internal file,
+      // since "Index" is neither "index" nor "Foo". They share one lowercase
+      // key, and the fold keeps whichever came last - so without an exact-match
+      // guard one silently becomes the other: the internal file folds onto the
+      // door and its crossing vanishes, or the door folds onto the internal file
+      // and gets reported as reaching past itself.
+      const graph = {
+        files: ["/root/Foo/Index.ts", "/root/Foo/index.ts"],
+        importers: new Map(),
+      };
+      expect(canonicalGraphPath(graph, "/root/Foo/Index.ts")).toBe(
+        "/root/Foo/Index.ts",
+      );
+      expect(canonicalGraphPath(graph, "/root/Foo/index.ts")).toBe(
+        "/root/Foo/index.ts",
+      );
+      // The recovery path itself must still work for a non-member.
+      expect(canonicalGraphPath(graph, "/root/foo/INDEX.ts")).toBe(
+        "/root/Foo/index.ts",
+      );
+    },
+  );
 });
 
 describe("getGraphResolutionSettings", () => {
