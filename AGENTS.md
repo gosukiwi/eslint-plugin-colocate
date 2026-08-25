@@ -159,7 +159,7 @@ For `colocate/entry`, `ignore` does more than silence: gates are derived from `g
 
 Emitted on `node.body[0] ?? node` so file-level `eslint-disable` still applies under ESLint 10 (Program-node reports are dropped there). Cover this with both `@typescript-eslint/parser` and Espree (`eslint-disable-ownership`, `eslint-disable-ownership-js`).
 
-Report **order** for one file is `singletonFolder`, `privateOutsideOwner`, the shared issue, `mismatchedEntry` — the order `ownershipFindings` pushes them in. Fixture assertions sort, so they will not catch a reordering; `check:placement`'s per-placement matrix and a raw differential will. Nothing short-circuits: a file can be a singleton wrapper *and* misplaced relative to its owner, and each report names a different edit.
+Report **order** for one file is `singletonFolder`, `privateOutsideOwner`, the shared issue, `mismatchedEntry` — the order `ownershipFindings` pushes them in. Exactly one test pins it: `two-findings-one-file` in `ownership.test.ts`, asserted **unsorted**. Every other assertion in that file sorts first, and `check:placement` does **not** catch a reordering — it builds a per-placement matrix but only prints it when a configuration has no clean placement at all, so swapping two pushes leaves the suite green, typecheck clean and `unsatisfiable=0`. Verified by mutation. Do not delete that fixture or sort its assertion. Nothing short-circuits: a file can be a singleton wrapper *and* misplaced relative to its owner, and each report names a different edit.
 
 | messageId | when |
 | --- | --- |
