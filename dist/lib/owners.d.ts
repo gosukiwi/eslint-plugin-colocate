@@ -16,7 +16,9 @@ export interface Owner {
     path: string;
 }
 export declare function getOwner(filePath: string, graph: Graph, rootDir: string): Owner;
-export declare function getShells(ctx: OwnershipContext): Set<string>;
+export declare const getShells: ((graph: Graph) => Set<string>) & {
+    prime: (graph: Graph, value: Set<string>) => void;
+};
 export declare function getColocationConsumers(filePath: string, graph: Graph, shells: Set<string>): string[];
 export declare function collectLayerDirectories(cwd: string, layerGlobs: string[], rootDir?: string): string[];
 export declare function resolveLayerDirectories(graph: Graph, cwd: string, layerGlobs: string[], rootDir?: string): string[];

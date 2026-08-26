@@ -5,7 +5,7 @@ import tsParser from "@typescript-eslint/parser";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
-import { lintFixture } from "./helpers/lint-fixture.js";
+import { lintFixture, lintFixtureRule } from "./helpers/lint-fixture.js";
 
 function sortMessages(
   messages: { file: string; messageId: string }[],
@@ -590,6 +590,31 @@ describe("ownership rule", () => {
 
     expect(sortMessages(messages)).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  // The one test that pins report ORDER, and the only reason the documented
+  // order is not free to drift. Every other assertion in this file sorts before
+  // comparing, and until this fixture existed no fixture produced two findings
+  // on a single file at all - so swapping the pushes in `ownershipFindings` left
+  // the whole suite green, typecheck clean, and `check:placement` reporting
+  // unsatisfiable=0, because that script only prints its per-placement matrix
+  // when a configuration has no clean placement. Asserted unsorted, on purpose.
+  it("emits both findings for one file in the documented order", async () => {
+    const messages = await lintFixtureRule(
+      "two-findings-one-file",
+      "ownership",
+      { root: "src" },
+    );
+    expect(
+      messages.map(({ file, messageId }) => ({ file, messageId })),
+    ).toEqual([
+      // singletonFolder first: Widget/ holds one source file named after it and
+      // has no companion stylesheet.
+      { file: "src/shared/Widget/Widget.ts", messageId: "singletonFolder" },
+      // then privateOutsideOwner: its only consumer is pages/Home, and it sits
+      // outside that folder. Both are real, and each names a different edit.
+      { file: "src/shared/Widget/Widget.ts", messageId: "privateOutsideOwner" },
     ]);
   });
 });

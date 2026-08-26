@@ -29,6 +29,7 @@ export default [
           ignore: ["**/*.generated.ts"],
         },
       ],
+      "colocate/entry": ["error", { root: "src" }],
     },
   },
 ];
@@ -116,6 +117,8 @@ src/pages/Home/Home.ts
 
 ## Options
 
+*These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options.*
+
 ### `root`
 
 Directory to walk, and the ceiling for ownership. Default `"."`. Set `"src"` for a typical app.
@@ -142,17 +145,44 @@ Unknown option names are rejected.
 
 ## What it reports
 
+*This covers `colocate/ownership`'s findings. `colocate/entry` reports a single finding, `reachesPastEntry` — see [The entry rule](#the-entry-rule).*
+
 | message | meaning | usual fix |
 | --- | --- | --- |
 | `privateOutsideOwner` | One owner imports this file, and it sits outside that owner's folder. | Move it inside the folder, or convert the owner into a folder with a matching entry file. |
 | `sharedTooHigh` | Several owners import it, and it sits above their common ancestor. | Move it down to the common ancestor. |
 | `sharedInsideOwner` | Several owners import it, and it sits inside one of theirs. | Hoist it to the common ancestor. |
-| `singletonFolder` | A directory holds a single source file and no stylesheet beside it. | Flatten the directory, or colocate something with the file. |
+| `singletonFolder` | A directory holds a single source file named after the directory (or `index`), and no stylesheet beside it. | Flatten the directory, or colocate something with the file. |
 | `mismatchedEntry` | An `index` re-exports exactly one sibling under a different name, and outside code imports the barrel. | Rename the sibling after the folder and drop the barrel, or import the module directly. |
 
 `singletonFolder` looks for a companion stylesheet only in the same directory (`.css`, `.scss`, `.sass`, `.less`, `.styl`).
 
 An `index` that re-exports two or more siblings is a namespace barrel and is left alone.
+
+## The entry rule
+
+`colocate/ownership` decides where a file belongs. `colocate/entry` decides how you get in.
+
+A directory containing an **entry file** — one named after the directory, or an `index` — is a module with a front door. Imports from outside must land on a door. Reaching past every door into the internals is an error.
+
+```
+src/pages/Inbox/Inbox.ts
+src/pages/Inbox/state.ts
+
+// BAD — reaches past the door into an internal file
+import { loadThread } from "../pages/Inbox/state.ts";
+
+// GOOD — enters through the door
+import { loadThread } from "../pages/Inbox/Inbox.ts";
+```
+
+**Nested doors count.** A nested module's own door is a legal landing place, so `pages/Inbox/FilterPanel/FilterPanel.ts` is reachable from anywhere. Only a file that is nobody's door is off limits.
+
+**A directory with no entry file is not a module.** It gates nothing, and the rule demands nothing of it — a folder of independent siblings (`lib/`, `tabs/`) stays exactly as it is. The rule is a ratchet: add a door when a directory deserves one, and from then on it's the only way in.
+
+**Unlike `ownership`, entry points get no exemption.** A file nothing imports still may not reach past a door; a shell burrowing into a feature's internals is exactly the finding worth having.
+
+Options are `root` and `ignore`, with the same meaning as `ownership`. There is no `layers` option — layers are about placement, and say nothing about access. There is no autofix: rewriting a specifier would produce code that doesn't compile whenever the door doesn't already re-export the symbol, so widening the door is left to the user.
 
 ## Notes
 

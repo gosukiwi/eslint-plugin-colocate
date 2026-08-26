@@ -1,10 +1,12 @@
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
+import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
-import { parseSourceFile, resolveSpecifier, SKIP_DIRS, } from "./graph.js";
-const shellsByGraph = new WeakMap();
-const layerDirsByGraph = new WeakMap();
+import { parseSourceFile } from "./parse.js";
+import { isInsideDir } from "./paths.js";
+import { resolveSpecifier } from "./resolve.js";
+import { SKIP_DIRS } from "./scope.js";
 export function collectReExports(indexFile, dir) {
     const content = safeReadFile(indexFile);
     const realDir = safeRealpath(dir);
@@ -197,12 +199,7 @@ function getRoots(graph) {
 // the directories it reaches as layers, which states something true about those
 // modules. Exempting the shell's imports outright would also hide a shell that
 // reaches past a feature's entry into its internals - a real finding.
-export function getShells(ctx) {
-    const { graph } = ctx;
-    const cached = shellsByGraph.get(graph);
-    if (cached !== undefined) {
-        return cached;
-    }
+export const getShells = derivedFromGraph((graph) => {
     const roots = getRoots(graph);
     const shells = new Set(roots);
     for (const file of graph.files) {
@@ -215,15 +212,11 @@ export function getShells(ctx) {
             shells.add(file);
         }
     }
-    shellsByGraph.set(graph, shells);
     return shells;
-}
+});
 export function getColocationConsumers(filePath, graph, shells) {
     const importers = graph.importers.get(filePath) ?? [];
     return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer));
-}
-function isInsideDir(filePath, dir) {
-    return filePath.startsWith(dir + path.sep);
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
@@ -259,16 +252,18 @@ export function collectLayerDirectories(cwd, layerGlobs, rootDir = cwd) {
 // directory created mid-session used to stay invisible until ESLint restarted,
 // which meant a permanent false privateOutsideOwner on every module inside it.
 // A new directory rebuilds the graph, which drops this entry with it.
+//
+// Two-level, unlike every other index here: the graph does not determine the
+// answer on its own, so the inner map keys the parts that vary per call. Passing
+// them to derivedFromGraph as extra arguments would serve one graph's first
+// answer to every later cwd and glob set.
+const layerDirsByGraph = derivedFromGraph(() => new Map());
 export function resolveLayerDirectories(graph, cwd, layerGlobs, rootDir = cwd) {
     if (layerGlobs.length === 0) {
         return [];
     }
     const key = cwd + "\0" + rootDir + "\0" + layerGlobs.join("\0");
-    let perGraph = layerDirsByGraph.get(graph);
-    if (perGraph === undefined) {
-        perGraph = new Map();
-        layerDirsByGraph.set(graph, perGraph);
-    }
+    const perGraph = layerDirsByGraph(graph);
     const cached = perGraph.get(key);
     if (cached !== undefined) {
         return cached;
@@ -296,7 +291,7 @@ export function isLayerPublicModule(filePath, layerDirs) {
     return fileBase === folderName || fileBase === "index";
 }
 export function shouldSkipColocation(filePath, ctx) {
-    const shells = getShells(ctx);
+    const shells = getShells(ctx.graph);
     if (shells.has(filePath)) {
         return true;
     }
@@ -306,7 +301,7 @@ export function shouldSkipColocation(filePath, ctx) {
     return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
 }
 function collectConsumerOwners(filePath, ctx) {
-    const shells = getShells(ctx);
+    const shells = getShells(ctx.graph);
     const consumers = getColocationConsumers(filePath, ctx.graph, shells);
     const owners = new Map();
     for (const consumer of consumers) {

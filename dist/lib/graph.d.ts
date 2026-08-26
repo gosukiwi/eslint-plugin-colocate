@@ -1,23 +1,40 @@
-import ts from "typescript";
-export declare const SOURCE_EXTS: readonly [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
-export declare function isTestFile(relPath: string): boolean;
+/**
+ * Readonly because six indexes are derived from a graph and memoised against
+ * the graph object for its whole lifetime (see derived.ts): mutating `files` or
+ * `importers` in place would silently desync every one of them. A changed tree
+ * produces a NEW graph - which is also what drops the old indexes, since
+ * nothing invalidates them.
+ */
 export interface Graph {
-    importers: Map<string, string[]>;
-    files: string[];
+    readonly importers: ReadonlyMap<string, readonly string[]>;
+    readonly files: readonly string[];
 }
-export declare const SKIP_DIRS: Set<string>;
-export declare function isSourceFile(p: string): boolean;
-export declare function matchesIgnore(relPath: string, ignoreGlobs: string[]): boolean;
-export declare function isOutsideRoot(relPath: string): boolean;
-export declare function isExcludedPath(relPath: string, ignoreGlobs: string[]): boolean;
-export declare function parseSourceFile(fileName: string, content: string): ts.SourceFile;
-export interface ResolutionSettings {
-    options: ts.CompilerOptions;
-    cache: ts.ModuleResolutionCache;
-    configPaths: string[];
-}
-export declare function findTsconfig(rootDir: string): string | undefined;
-export declare function resolveSpecifier(specifier: string, fromDir: string, settings?: ResolutionSettings): string | undefined;
+/**
+ * Whether the graph contains this exact path.
+ *
+ * Exact on purpose: a caller asking "does the model know this module" is
+ * checking a path it got from the graph or from `collectReExports`, and folding
+ * would answer for a different file. Use `canonicalGraphPath` first when the
+ * path came from a specifier instead.
+ */
+export declare function graphHasFile(graph: Graph, filePath: string): boolean;
+/**
+ * The graph's own spelling of a resolved path, or the path unchanged when
+ * nothing in the graph matches it.
+ *
+ * `resolveSpecifier` hands back a path built from the specifier's own text, and
+ * `fs.realpathSync` (what `safeRealpath` uses) neither folds case on macOS - only
+ * its `.native` variant does - nor normalizes Unicode on any platform. So a path
+ * that resolved perfectly well can still differ byte-for-byte from the one the
+ * walk recorded. Callers that key off a file's directory (gates) need the
+ * recorded spelling or they miss real boundaries and invent fake ones.
+ */
+export declare function canonicalGraphPath(graph: Graph, filePath: string): string;
+export declare const getGraphResolutionSettings: ((graph: Graph, rootDir: string) => import("./resolve.js").ResolutionSettings) & {
+    prime: (graph: Graph, value: import("./resolve.js").ResolutionSettings) => void;
+};
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
-export declare function stampIsAmbiguous(mtimeMs: number, builtAt: number, coarseTimestamps: boolean): boolean;
-export declare function getGraph(rootDir: string, ignoreGlobs: string[], currentFile: string): Graph;
+export declare function buildGraphWithConfigs(rootDir: string, ignoreGlobs: string[]): {
+    graph: Graph;
+    configPaths: string[];
+};

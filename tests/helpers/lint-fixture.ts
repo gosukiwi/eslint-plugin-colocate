@@ -9,10 +9,22 @@ const fixturesDir = path.join(
   "../fixtures",
 );
 
+export type RuleName = "ownership" | "entry";
+
+export interface FixtureMessage {
+  file: string;
+  messageId: string;
+  line: number;
+  message: string;
+}
+
 export function makeESLint(
   cwd: string,
   ruleOptions?: Record<string, unknown>,
-  options?: { parser?: "typescript" | "espree" },
+  options?: {
+    parser?: "typescript" | "espree";
+    rule?: RuleName | RuleName[];
+  },
 ): ESLint {
   const languageOptions =
     options?.parser === "espree"
@@ -27,6 +39,20 @@ export function makeESLint(
             ecmaVersion: 2022,
           },
         };
+  // Accepts several rule names so a cache test can enable both rules at once -
+  // that is the configuration that exposed the getGraph double-call bug, and
+  // no fixture-driven assertion needs more than one rule at a time.
+  const ruleNames =
+    options?.rule === undefined
+      ? (["ownership"] as const)
+      : Array.isArray(options.rule)
+        ? options.rule
+        : [options.rule];
+
+  const rules: Record<string, [string, Record<string, unknown>]> = {};
+  for (const ruleName of ruleNames) {
+    rules[`colocate/${ruleName}`] = ["error", ruleOptions ?? {}];
+  }
 
   return new ESLint({
     cwd,
@@ -37,21 +63,27 @@ export function makeESLint(
         plugins: {
           colocate: plugin,
         },
-        rules: {
-          "colocate/ownership": ["error", ruleOptions ?? {}],
-        },
+        rules,
         languageOptions,
       },
     ],
   });
 }
 
-export function collectMessages(
+// The real collection loop lives here so the fatal-parse-error check has one
+// implementation; collectMessages below is a thin projection onto the
+// two-key shape the ownership assertions were already written against.
+// Exported so a temp-directory test for a new rule (the makeESLint +
+// collectMessages idiom in cache.test.ts) doesn't silently get `[]` back
+// from collectMessages's hardcoded "colocate/ownership" filter.
+export function collectRuleMessages(
   cwd: string,
   results: ESLint.LintResult[],
-): { file: string; messageId: string }[] {
-  const messages: { file: string; messageId: string }[] = [];
+  ruleName: RuleName,
+): FixtureMessage[] {
+  const messages: FixtureMessage[] = [];
   const fatal: string[] = [];
+  const ruleId = `colocate/${ruleName}`;
 
   for (const result of results) {
     for (const message of result.messages) {
@@ -61,10 +93,12 @@ export function collectMessages(
         );
         continue;
       }
-      if (message.ruleId === "colocate/ownership" && message.messageId) {
+      if (message.ruleId === ruleId && message.messageId) {
         messages.push({
           file: path.relative(cwd, result.filePath),
           messageId: message.messageId,
+          line: message.line,
+          message: message.message,
         });
       }
     }
@@ -79,13 +113,78 @@ export function collectMessages(
   return messages;
 }
 
+export function collectMessages(
+  cwd: string,
+  results: ESLint.LintResult[],
+): { file: string; messageId: string }[] {
+  return collectRuleMessages(cwd, results, "ownership").map(
+    ({ file, messageId }) => ({ file, messageId }),
+  );
+}
+
+// Ownership assertions compare whole objects with toEqual, so they want the
+// two-key shape below. Reach for lintFixtureRule instead when a fixture
+// packs several findings into one file and the assertion needs line/message
+// to tell them apart.
 export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
   targets: string[] = ["src"],
   options?: { parser?: "typescript" | "espree" },
 ): Promise<{ file: string; messageId: string }[]> {
+  const messages = await lintFixtureRule(
+    name,
+    "ownership",
+    ruleOptions,
+    targets,
+    options,
+  );
+  return messages.map(({ file, messageId }) => ({ file, messageId }));
+}
+
+export async function lintFixtureRule(
+  name: string,
+  rule: RuleName,
+  ruleOptions?: Record<string, unknown>,
+  targets: string[] = ["src"],
+  options?: { parser?: "typescript" | "espree" },
+): Promise<FixtureMessage[]> {
   const cwd = path.join(fixturesDir, name);
-  const results = await makeESLint(cwd, ruleOptions, options).lintFiles(targets);
-  return collectMessages(cwd, results);
+  const results = await makeESLint(cwd, ruleOptions, {
+    ...options,
+    rule,
+  }).lintFiles(targets);
+  return collectRuleMessages(cwd, results, rule);
+}
+
+export async function lintEntryFixture(
+  name: string,
+  ruleOptions?: Record<string, unknown>,
+  targets: string[] = ["src"],
+  options?: { parser?: "typescript" | "espree" },
+): Promise<FixtureMessage[]> {
+  return lintFixtureRule(name, "entry", ruleOptions, targets, options);
+}
+
+/**
+ * The named keys of each message, for a `toEqual` that pins some fields and
+ * ignores the rest.
+ *
+ * Six copies of `messages.map(({ file, line, messageId }) => ({ file, line,
+ * messageId }))` had accumulated in entry.test.ts. Keep choosing the keys per
+ * assertion rather than settling on one shape: which fields carry the point
+ * differs - `message` is the payload wherever the report names a module and a
+ * door, and noise wherever the interesting thing is which line was flagged.
+ */
+export function pick<K extends keyof FixtureMessage>(
+  messages: FixtureMessage[],
+  ...keys: K[]
+): Pick<FixtureMessage, K>[] {
+  return messages.map((message) => {
+    const picked = {} as Pick<FixtureMessage, K>;
+    for (const key of keys) {
+      picked[key] = message[key];
+    }
+    return picked;
+  });
 }
