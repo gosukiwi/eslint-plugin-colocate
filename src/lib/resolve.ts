@@ -185,11 +185,6 @@ function aliasCandidates(
   // here exactly as written. Taken on trust, that threw a TypeError out of the
   // rule and killed the entire lint run with no results at all - the one thing
   // the filesystem handling everywhere else is careful never to do.
-  //
-  // This guard covers the shapes that reach *this* function. It is not the whole
-  // story: `ts.resolveModuleName` above is called unguarded, and TypeScript
-  // throws from inside it for a `paths` value of `null` or an array containing
-  // `null`, before anything here runs. See the malformed-`paths` issue.
   const targets = paths[pattern];
   if (!Array.isArray(targets)) {
     return [];
@@ -213,13 +208,18 @@ export function resolveSpecifier(
   settings?: ResolutionSettings,
 ): string | undefined {
   const options = settings?.options ?? RESOLUTION_OVERRIDES;
-  const { resolvedModule } = ts.resolveModuleName(
-    specifier,
-    path.join(fromDir, "__colocate__.ts"),
-    options,
-    ts.sys,
-    settings?.cache,
-  );
+  let resolvedModule: ts.ResolvedModuleFull | undefined;
+  try {
+    ({ resolvedModule } = ts.resolveModuleName(
+      specifier,
+      path.join(fromDir, "__colocate__.ts"),
+      options,
+      ts.sys,
+      settings?.cache,
+    ));
+  } catch {
+    resolvedModule = undefined;
+  }
 
   if (
     resolvedModule !== undefined &&

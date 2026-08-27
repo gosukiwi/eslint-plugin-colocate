@@ -183,6 +183,8 @@ describe("robustness", () => {
   it.each([
     ["a string instead of an array", '{ "@/*": "src/*" }'],
     ["a non-string target", '{ "@/*": [{ "not": "a string" }] }'],
+    ["a null target in the array", '{ "@/*": [null] }'],
+    ["a null target list", '{ "@/*": null }'],
   ])("stays silent when tsconfig paths holds %s", async (_label, paths) => {
     const dir = tempProject({
       "tsconfig.json": `{ "compilerOptions": { "baseUrl": ".", "paths": ${paths} } }`,
@@ -199,6 +201,35 @@ describe("robustness", () => {
         // which collectRuleMessages turns into an error, so this asserts both.
         expect(collectRuleMessages(dir, results, rule)).toEqual([]);
       }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still resolves an alias when a paths target list mixes null with a valid mapping", async () => {
+    const dir = tempProject({
+      "tsconfig.json":
+        '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": [null, "src/*"] } } }',
+      "src/main.ts": 'import "./App";\n',
+      "src/App.ts": 'import "@/pages/MyPage/MyPage";\n',
+      "src/pages/MyPage/MyPage.ts": 'import "@/pages/helper";\nexport const page = 1;\n',
+      "src/pages/helper.ts": "export const h = 1;\n",
+    });
+    try {
+      const results = await makeESLint(dir, { root: "src" }, {
+        rule: "ownership",
+      }).lintFiles(["src"]);
+      expect(
+        sortMessages(
+          collectRuleMessages(dir, results, "ownership").map(({ file, messageId }) => ({
+            file,
+            messageId,
+          })),
+        ),
+      ).toEqual([
+        { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+        { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
+      ]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
