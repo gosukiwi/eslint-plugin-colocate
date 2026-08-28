@@ -25,4 +25,33 @@ describe("extractSpecifiers", () => {
       extractSpecifiers("export type X = import(foo).T;\n", "a.ts"),
     ).toEqual([]);
   });
+
+  it("records quoted import() and require() specifiers", () => {
+    expect(extractSpecifiers('import("./mod");\n', "a.ts")).toEqual(["./mod"]);
+    expect(extractSpecifiers('require("./mod");\n', "a.js")).toEqual(["./mod"]);
+  });
+
+  it("records import() with a no-substitution template specifier", () => {
+    expect(extractSpecifiers("import(`./mod`);\n", "a.ts")).toEqual(["./mod"]);
+  });
+
+  it("records require() with a no-substitution template specifier", () => {
+    expect(extractSpecifiers("require(`./mod`);\n", "a.js")).toEqual(["./mod"]);
+  });
+
+  it("records type-position import() with a no-substitution template specifier", () => {
+    expect(
+      extractSpecifiers("export type X = import(`./mod`).T;\n", "a.ts"),
+    ).toEqual(["./mod"]);
+  });
+
+  it("records the cooked value of a no-substitution template specifier", () => {
+    expect(
+      extractSpecifiers("import(`./hel\\u0070er`);\n", "a.ts"),
+    ).toEqual(["./helper"]);
+  });
+
+  it("ignores a template specifier with substitutions", () => {
+    expect(extractSpecifiers("import(`./mod${y}`);\n", "a.ts")).toEqual([]);
+  });
 });

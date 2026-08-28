@@ -32,7 +32,9 @@ export function parseSourceFile(
 }
 
 function stringLiteralText(node: ts.Node | undefined): string | undefined {
-  if (node !== undefined && ts.isStringLiteral(node)) {
+  // No-substitution templates are as static as quotes. isStringLiteral
+  // rejects them, so one character dropped the graph edge.
+  if (node !== undefined && ts.isStringLiteralLike(node)) {
     return node.text;
   }
   return undefined;
