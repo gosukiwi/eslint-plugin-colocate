@@ -32,7 +32,9 @@ export function parseSourceFile(
 }
 
 function stringLiteralText(node: ts.Node | undefined): string | undefined {
-  if (node !== undefined && ts.isStringLiteral(node)) {
+  // No-substitution templates are as static as quotes. isStringLiteral
+  // rejects them, so one character dropped the graph edge.
+  if (node !== undefined && ts.isStringLiteralLike(node)) {
     return node.text;
   }
   return undefined;
@@ -61,6 +63,11 @@ function importedSpecifier(
         node.expression.text === "require"))
   ) {
     return stringLiteralText(node.arguments[0]);
+  }
+  // ImportTypeNode is not a CallExpression. Type-position import("./x").T
+  // and typeof import("./x") used to leave the target with no importer.
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+    return stringLiteralText(node.argument.literal);
   }
   return undefined;
 }
