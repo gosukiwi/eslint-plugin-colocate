@@ -420,6 +420,18 @@ describe("ownership rule", () => {
     ]);
   });
 
+  // The platform-independent half of the mixed-casing test below: the
+  // aggregated count keys on the resolved module, so two spellings of one
+  // module are one module. Keeping this case-free matters because the two
+  // skipIf tests that follow are the only other cover for that keying, and they
+  // do not run on a case-sensitive filesystem.
+  it("counts two spellings of one re-exported module as one module", async () => {
+    const messages = await lintFixture("extension-split-barrel");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
     "reports mismatchedEntry when the single re-export's case does not match the file on disk",
     async () => {

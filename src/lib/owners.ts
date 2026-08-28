@@ -39,14 +39,6 @@ export function collectReExports(
     return { local: [], total: 0 };
   }
   const sourceFile = parseSourceFile(indexFile, content);
-  // Both sides of the sibling comparison have to be in the graph's spelling.
-  // Canonicalising only the resolved target would break the wrong-case linted
-  // index, where the index's own directory carries the same wrong casing the
-  // target used to - they matched each other, and rewriting one alone stops
-  // them matching at all.
-  const index =
-    realIndex === undefined ? undefined : canonicalGraphPath(graph, realIndex);
-  const siblingDir = index === undefined ? realDir : path.dirname(index);
   // Resolving without these silently drops every aliased re-export: the
   // fallback inside resolveSpecifier carries no project `paths` and no
   // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
@@ -60,10 +52,10 @@ export function collectReExports(
   // Keyed by resolved module where there is one, and by specifier text only
   // where there is not, so a re-export that does not resolve (a bare package, a
   // types-only module) still marks this index as an aggregator while two
-  // spellings of one module ("./Bar" and "./bar" on a case-insensitive disk)
-  // count once. Keying on the text alone made mixed casing an aggregator and
-  // suppressed mismatchedEntry just as thoroughly as the double-counted sibling
-  // it came with.
+  // spellings of one module count once. Keying on the text alone made "./Bar"
+  // plus "./Bar.js" - or, on a case-insensitive disk, "./Bar" plus "./bar" - an
+  // aggregator, which suppressed mismatchedEntry just as thoroughly as the
+  // double-counted sibling that came with it.
   const modules = new Set<string>();
 
   const visit = (node: ts.Node): void => {
@@ -74,19 +66,24 @@ export function collectReExports(
     ) {
       const specifier = node.moduleSpecifier.text;
       const resolved = resolveSpecifier(specifier, dir, settings);
+      // resolveSpecifier builds its answer from the specifier's own text and
+      // realpath folds neither case nor Unicode normalization, so a target that
+      // resolved perfectly well can still be spelled differently from the graph
+      // key for the same file. Only the target needs recovering: realDir and
+      // realIndex come from a path the walk itself recorded.
       const target =
         resolved === undefined
           ? undefined
           : canonicalGraphPath(graph, resolved);
       // An index re-exporting itself ("export * from './index'") names no
       // sibling at all.
-      if (target === undefined || target !== index) {
+      if (target === undefined || target !== realIndex) {
         modules.add(target ?? specifier);
         // Asked of the resolved file rather than of the specifier's spelling:
         // a relative-specifier gate here said the same thing for "./Bar" and
         // the wrong thing for an aliased sibling, which stayed uncounted and
         // so unbarrelled.
-        if (target !== undefined && path.dirname(target) === siblingDir) {
+        if (target !== undefined && path.dirname(target) === realDir) {
           local.add(target);
         }
       }
