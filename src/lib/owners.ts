@@ -3,7 +3,11 @@ import { minimatch } from "minimatch";
 import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
-import { type Graph } from "./graph.js";
+import {
+  canonicalGraphPath,
+  getGraphResolutionSettings,
+  type Graph,
+} from "./graph.js";
 import { parseSourceFile } from "./parse.js";
 import { isInsideDir } from "./paths.js";
 import { resolveSpecifier } from "./resolve.js";
@@ -22,7 +26,12 @@ export interface ReExports {
   total: number;
 }
 
-export function collectReExports(indexFile: string, dir: string): ReExports {
+export function collectReExports(
+  indexFile: string,
+  dir: string,
+  graph: Graph,
+  rootDir: string,
+): ReExports {
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
   const realIndex = safeRealpath(indexFile);
@@ -30,14 +39,32 @@ export function collectReExports(indexFile: string, dir: string): ReExports {
     return { local: [], total: 0 };
   }
   const sourceFile = parseSourceFile(indexFile, content);
+  // Both sides of the sibling comparison have to be in the graph's spelling.
+  // Canonicalising only the resolved target would break the wrong-case linted
+  // index, where the index's own directory carries the same wrong casing the
+  // target used to - they matched each other, and rewriting one alone stops
+  // them matching at all.
+  const index =
+    realIndex === undefined ? undefined : canonicalGraphPath(graph, realIndex);
+  const siblingDir = index === undefined ? realDir : path.dirname(index);
+  // Resolving without these silently drops every aliased re-export: the
+  // fallback inside resolveSpecifier carries no project `paths` and no
+  // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
+  // reclassified the barrel - and with it every finding downstream of
+  // getColocationConsumers.
+  const settings = getGraphResolutionSettings(graph, rootDir);
   // Keyed by module, not by declaration: the idiomatic value + type split
   // ("export { x } from './X'; export type { T } from './X';") re-exports one
   // sibling and must not look like a two-module namespace barrel.
   const local = new Set<string>();
-  // Counted by specifier rather than by resolved module, so a re-export that
-  // does not resolve (a bare package, a types-only module) still marks this
-  // index as an aggregator.
-  const specifiers = new Set<string>();
+  // Keyed by resolved module where there is one, and by specifier text only
+  // where there is not, so a re-export that does not resolve (a bare package, a
+  // types-only module) still marks this index as an aggregator while two
+  // spellings of one module ("./Bar" and "./bar" on a case-insensitive disk)
+  // count once. Keying on the text alone made mixed casing an aggregator and
+  // suppressed mismatchedEntry just as thoroughly as the double-counted sibling
+  // it came with.
+  const modules = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (
@@ -46,17 +73,21 @@ export function collectReExports(indexFile: string, dir: string): ReExports {
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       const specifier = node.moduleSpecifier.text;
-      const resolved = resolveSpecifier(specifier, dir);
+      const resolved = resolveSpecifier(specifier, dir, settings);
+      const target =
+        resolved === undefined
+          ? undefined
+          : canonicalGraphPath(graph, resolved);
       // An index re-exporting itself ("export * from './index'") names no
       // sibling at all.
-      if (resolved === undefined || resolved !== realIndex) {
-        specifiers.add(specifier);
-        if (
-          resolved !== undefined &&
-          specifier.startsWith(".") &&
-          path.dirname(resolved) === realDir
-        ) {
-          local.add(resolved);
+      if (target === undefined || target !== index) {
+        modules.add(target ?? specifier);
+        // Asked of the resolved file rather than of the specifier's spelling:
+        // a relative-specifier gate here said the same thing for "./Bar" and
+        // the wrong thing for an aliased sibling, which stayed uncounted and
+        // so unbarrelled.
+        if (target !== undefined && path.dirname(target) === siblingDir) {
+          local.add(target);
         }
       }
     }
@@ -64,19 +95,30 @@ export function collectReExports(indexFile: string, dir: string): ReExports {
   };
 
   visit(sourceFile);
-  return { local: [...local], total: specifiers.size };
+  return { local: [...local], total: modules.size };
 }
 
-function countLocalReExports(indexFile: string, dir: string): number {
-  return collectReExports(indexFile, dir).local.length;
+function countLocalReExports(
+  indexFile: string,
+  dir: string,
+  graph: Graph,
+  rootDir: string,
+): number {
+  return collectReExports(indexFile, dir, graph, rootDir).local.length;
 }
 
-function isNamespaceBarrel(filePath: string): boolean {
+function isNamespaceBarrel(
+  filePath: string,
+  graph: Graph,
+  rootDir: string,
+): boolean {
   const basename = path.basename(filePath, path.extname(filePath));
   if (basename !== "index") {
     return false;
   }
-  return countLocalReExports(filePath, path.dirname(filePath)) >= 2;
+  return (
+    countLocalReExports(filePath, path.dirname(filePath), graph, rootDir) >= 2
+  );
 }
 
 function isOwnerEntryFile(file: string, dir: string, graph: Graph): boolean {
@@ -282,12 +324,14 @@ export const getShells = derivedFromGraph((graph) => {
 
 export function getColocationConsumers(
   filePath: string,
-  graph: Graph,
+  ctx: OwnershipContext,
   shells: Set<string>,
 ): string[] {
-  const importers = graph.importers.get(filePath) ?? [];
+  const importers = ctx.graph.importers.get(filePath) ?? [];
   return importers.filter(
-    (importer) => !shells.has(importer) && !isNamespaceBarrel(importer),
+    (importer) =>
+      !shells.has(importer) &&
+      !isNamespaceBarrel(importer, ctx.graph, ctx.rootDir),
   );
 }
 
@@ -407,7 +451,7 @@ export function shouldSkipColocation(
   if (isLayerPublicModule(filePath, ctx.layerDirs)) {
     return true;
   }
-  return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
+  return getColocationConsumers(filePath, ctx, shells).length === 0;
 }
 
 function collectConsumerOwners(
@@ -415,7 +459,7 @@ function collectConsumerOwners(
   ctx: OwnershipContext,
 ): Map<string, Owner> {
   const shells = getShells(ctx.graph);
-  const consumers = getColocationConsumers(filePath, ctx.graph, shells);
+  const consumers = getColocationConsumers(filePath, ctx, shells);
   const owners = new Map<string, Owner>();
   for (const consumer of consumers) {
     const owner = getOwner(consumer, ctx.graph, ctx.rootDir);

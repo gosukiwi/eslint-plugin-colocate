@@ -104,7 +104,7 @@ function isMismatchedEntry(indexFile, ctx) {
     if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
         return false;
     }
-    const { local, total } = collectReExports(indexFile, dir);
+    const { local, total } = collectReExports(indexFile, dir, ctx.graph, ctx.rootDir);
     // An index that also re-exports modules from elsewhere is an aggregator,
     // not a stand-in for one sibling: the message would name a "named entry
     // file" that does not exist and dropping the barrel would lose the rest.

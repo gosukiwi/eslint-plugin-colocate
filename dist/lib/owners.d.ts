@@ -10,7 +10,7 @@ export interface ReExports {
     /** Every re-exported module, including modules from elsewhere. */
     total: number;
 }
-export declare function collectReExports(indexFile: string, dir: string): ReExports;
+export declare function collectReExports(indexFile: string, dir: string, graph: Graph, rootDir: string): ReExports;
 export interface Owner {
     kind: "folder" | "standalone";
     path: string;
@@ -19,7 +19,7 @@ export declare function getOwner(filePath: string, graph: Graph, rootDir: string
 export declare const getShells: ((graph: Graph) => Set<string>) & {
     prime: (graph: Graph, value: Set<string>) => void;
 };
-export declare function getColocationConsumers(filePath: string, graph: Graph, shells: Set<string>): string[];
+export declare function getColocationConsumers(filePath: string, ctx: OwnershipContext, shells: Set<string>): string[];
 export declare function collectLayerDirectories(cwd: string, layerGlobs: string[], rootDir?: string): string[];
 export declare function resolveLayerDirectories(graph: Graph, cwd: string, layerGlobs: string[], rootDir?: string): string[];
 export declare function isLayerPublicModule(filePath: string, layerDirs: string[]): boolean;
