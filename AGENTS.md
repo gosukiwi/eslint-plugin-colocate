@@ -85,7 +85,7 @@ Options are `{ root, ignore }` only. Do not add `layers` — placement and acces
 
 Invariants: no shell exemption (that is the point of the rule); no barrel exemption for importers, unlike `getColocationConsumers`; type-only imports treated like value imports, in both the `import type { T } from "./x"` and the inline `import("./x").T` / `typeof import("./x")` spellings (`TSImportType`, a separate visitor); no autofix; no check on whether the door re-exports the symbol; never a requirement that a directory *have* an entry.
 
-Specifiers must be **statically known**: a quoted string or a template literal with no substitutions. Backticks resolve exactly as quotes do, so leaving them out of `entry` made them a one-character way to launder every crossing past a ratchet rule. The `cooked` value is what gets resolved, not `raw`. Anything else (a substituted template, concatenation, `as string`, an identifier) stays out. **`parse.ts` has not been given the same treatment**, so backticks still launder an `ownership` finding — a tracked issue, not a licence to leave `entry` matching it. Declaration files are outside the model as **targets** as well as doors — `resolveSpecifier`'s probe still finds `types.d.ts` for a `"./types.d"` specifier, so the target is filtered on `isSourceFile`.
+Specifiers must be **statically known**: a quoted string or a template literal with no substitutions. Backticks resolve exactly as quotes do, so leaving them out of `entry` made them a one-character way to launder every crossing past a ratchet rule. The `cooked` value is what gets resolved, not `raw`. Anything else (a substituted template, concatenation, `as string`, an identifier) stays out. Declaration files are outside the model as **targets** as well as doors — `resolveSpecifier`'s probe still finds `types.d.ts` for a `"./types.d"` specifier, so the target is filtered on `isSourceFile`.
 
 The `TSImportType` visitor must read **both** AST shapes: `node.source` exists only from `@typescript-eslint/parser` 8.48, and before that the specifier sits on `node.argument.literal` (a `TSLiteralType`). This plugin declares no parser dependency, so reading `source` alone leaves the visitor silently inert on every 8.x below 8.48 a user may install — inert in exactly the way the visitor was added to fix, and invisible from the outside.
 
@@ -152,7 +152,7 @@ Every report must be **fixable**: for `ownership` there has to exist a location 
 
 Walk skips `node_modules`, `dist`, `coverage`, `.git`, `.hg`, `.svn`, declaration files (`.d.ts` `.d.mts` `.d.cts`), and tests (`__tests__` segment or `.test.` / `.spec.` in the basename). `isTestFile` takes a path **relative to root** — an absolute path with `__tests__` above the project would disable the rule.
 
-Edges from `import`, `export ... from`, `import()`, `require()`, and `import x = require()`. `require` is scope-aware: a shadowed `require` is not an edge, except `const require = createRequire(...)`.
+Edges from `import`, `export ... from`, `import()`, type-position `import()` (`import("./x").T` and `typeof import("./x")`), `require()`, and `import x = require()`. `require` is scope-aware: a shadowed `require` is not an edge, except `const require = createRequire(...)`.
 
 Resolution goes through the TypeScript compiler (`getParsedCommandLineOfConfigFile`, so `extends` is honoured) with **bundler** `moduleResolution` regardless of `tsc` settings: extensionless imports resolve, `./x.js` maps onto `x.ts`. Extra probe for `.cts`/`.cjs` and path-mapping targets the compiler will not try. `paths` picks **one** pattern (exact key, else longest prefix) — do not try every matching pattern.
 
@@ -212,6 +212,7 @@ Unit/integration split:
 - `gates.test.ts` — `isEntryFile`, `getGates`, `findCrossedGate` unit tests
 - `harness.test.ts` — the shared fixture-lint helper itself (two-key ownership shape only; it never calls `lintEntryFixture`, so the per-rule/per-import entry shape is *not* covered here)
 - `graph.test.ts` / `walk.test.ts` — resolution, walk, skip rules, temp trees + symlinks
+- `parse.test.ts` — extractSpecifiers: type-position import(), no-substitution templates, and spellings that must not become edges
 - `cache.test.ts` — invalidation in one process (temp dirs)
 - `owners.test.ts` — layer glob expansion / memoisation
 - `robustness.test.ts` — ownership's degradation cases: missing root, missing file, unreadable, deleted importer
