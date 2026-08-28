@@ -135,6 +135,14 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("reports privateOutsideOwner when the only importer is a type-position import()", async () => {
+    const messages = await lintFixture("private-type-import");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
+      { file: "src/pages/MyPage/MyPage.ts", messageId: "singletonFolder" },
+    ]);
+  });
+
   it("does not report privateOutsideOwner when a private file sits inside its owner folder", async () => {
     const messages = await lintFixture("private-colocated-ok");
     expect(sortMessages(messages)).toEqual([]);
