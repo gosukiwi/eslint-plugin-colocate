@@ -4,7 +4,7 @@ import path from "node:path";
 import { Linter } from "eslint";
 import tsParser from "@typescript-eslint/parser";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
+import { getGraph, REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
 import plugin from "../src/index.js";
 import {
   collectMessages,
@@ -131,6 +131,44 @@ describe("graph invalidation within one process", () => {
       statSpy.mockRestore();
     }
   }
+
+  it("does not re-stat tracked files every 100 ms during one pass", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T00:00:00Z"));
+    let statSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      const files: Record<string, string> = {};
+      for (let i = 0; i < 10; i += 1) {
+        files[`src/file${i}.ts`] = `export const v${i} = ${i};\n`;
+      }
+      const dir = project(files);
+      const root = path.join(dir, "src");
+      const paths = Array.from({ length: 10 }, (_, i) =>
+        path.join(dir, `src/file${i}.ts`),
+      );
+
+      const firstToken = {};
+      getGraph(root, [], paths[0], firstToken);
+      getGraph(root, [], paths[0], firstToken);
+
+      statSpy = vi.spyOn(fs, "statSync");
+      for (let i = 1; i < paths.length; i += 1) {
+        vi.advanceTimersByTime(50);
+        const token = {};
+        getGraph(root, [], paths[i], token);
+        getGraph(root, [], paths[i], token);
+      }
+
+      const tracked = new Set(paths);
+      const trackedStats = statSpy.mock.calls.filter(
+        (call) => typeof call[0] === "string" && tracked.has(call[0]),
+      ).length;
+      expect(trackedStats).toBe(0);
+    } finally {
+      statSpy?.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 
   it("does not re-validate the whole tracked set once per rule when several rules share a lint pass", async () => {
     const small = await countStatsForFileCount(20);

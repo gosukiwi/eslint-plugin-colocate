@@ -141,7 +141,7 @@ function isProductionGraphFile(
   return isInGraphScope(path.relative(realRoot, currentFile), ignoreGlobs);
 }
 
-function isSameParse(
+function isSameVisit(
   pass: PassState,
   currentFile: string,
   visitToken: VisitToken | undefined,
@@ -149,8 +149,7 @@ function isSameParse(
   return (
     visitToken !== undefined &&
     pass.lastFile === currentFile &&
-    pass.lastToken?.deref() === visitToken &&
-    Date.now() - pass.validatedAt < REVALIDATE_AFTER_MS
+    pass.lastToken?.deref() === visitToken
   );
 }
 
@@ -162,24 +161,28 @@ function isFresh(
   ignoreGlobs: string[],
 ): boolean {
   const { snapshot, pass } = entry;
-  if (isSameParse(pass, currentFile, visitToken)) {
+  if (
+    isSameVisit(pass, currentFile, visitToken) &&
+    Date.now() - pass.validatedAt < REVALIDATE_AFTER_MS
+  ) {
     return true;
   }
   if (tsconfigNeedsRebuild(snapshot, rootDir)) {
     return false;
   }
 
-  const now = Date.now();
-  if (
-    pass.visited.has(currentFile) ||
-    now - pass.validatedAt >= REVALIDATE_AFTER_MS
-  ) {
+  if (pass.visited.has(currentFile) && !isSameVisit(pass, currentFile, visitToken)) {
     pass.visited.clear();
-    pass.validatedAt = now;
+    if (trackedFilesChanged(snapshot)) {
+      return false;
+    }
+  } else if (isSameVisit(pass, currentFile, visitToken)) {
     if (trackedFilesChanged(snapshot)) {
       return false;
     }
   }
+
+  pass.validatedAt = Date.now();
   pass.visited.add(currentFile);
 
   if (snapshot.stamps.has(currentFile)) {
