@@ -6,6 +6,7 @@ import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
 import {
   canonicalGraphPath,
   getGraphResolutionSettings,
+  graphFilesInDir,
   type Graph,
 } from "./graph.js";
 import { parseSourceFile } from "./parse.js";
@@ -112,7 +113,9 @@ function isOwnerEntryFile(file: string, dir: string, graph: Graph): boolean {
 }
 
 function directoryHasMatchingEntry(dir: string, graph: Graph): boolean {
-  return graph.files.some((file) => isOwnerEntryFile(file, dir, graph));
+  return graphFilesInDir(graph, dir).some((file) =>
+    isOwnerEntryFile(file, dir, graph),
+  );
 }
 
 export interface Owner {
