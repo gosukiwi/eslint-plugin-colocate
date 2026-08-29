@@ -6,6 +6,7 @@ import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getGraph } from "../src/lib/graph-cache.js";
 import {
+  buildGraph,
   canonicalGraphPath,
   getGraphResolutionSettings,
 } from "../src/lib/graph.js";
@@ -30,6 +31,12 @@ function tempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   created.push(dir);
   return dir;
+}
+
+function foldsNormalization(dir: string): boolean {
+  const name = "probe-Café.ts";
+  fs.writeFileSync(path.join(dir, name.normalize("NFD")), "");
+  return fs.existsSync(path.join(dir, name.normalize("NFC")));
 }
 
 const fixtureRoot = path.join(
@@ -326,6 +333,36 @@ describe("getGraph", () => {
     fs.writeFileSync(indexPath, "export const x = 1;\n");
 
     expect(resolveSpecifier("./Feature", srcDir)).toBe(indexPath);
+  });
+});
+
+describe("buildGraph", () => {
+  it("records an importer when the specifier and the on-disk path differ only by Unicode normalization", () => {
+    const base = fs.realpathSync(tempDir("colocate-graph-nfd-"));
+    if (!foldsNormalization(base)) {
+      return;
+    }
+
+    const nfc = "Café"; // é as a single code point
+    const nfd = "Café"; // e followed by a combining acute
+    const srcDir = path.join(base, "src");
+    fs.mkdirSync(path.join(srcDir, nfc), { recursive: true });
+    fs.writeFileSync(
+      path.join(srcDir, nfc, "helper.ts"),
+      "export const h = 1;\n",
+    );
+    fs.writeFileSync(
+      path.join(srcDir, "app.ts"),
+      `import "./${nfd}/helper";\n`,
+    );
+
+    const graph = buildGraph(srcDir, []);
+    const helperPath = graph.files.find(
+      (file) => path.basename(file) === "helper.ts",
+    ) as string;
+    const appPath = path.join(srcDir, "app.ts");
+
+    expect(graph.importers.get(helperPath)).toEqual([appPath]);
   });
 });
 
