@@ -228,7 +228,15 @@ describe("graph invalidation within one process", () => {
     });
     fs.symlinkSync("../fmt.ts", path.join(dir, "src/B/target.ts"));
 
-    expect(await lint(dir, ["src"])).toEqual([]);
+    const first = await lint(dir, ["src"]);
+    expect(first).toContainEqual({
+      file: "src/fmt.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(first).toContainEqual({
+      file: "src/B/target.ts",
+      messageId: "privateOutsideOwner",
+    });
 
     fs.unlinkSync(path.join(dir, "src/B/target.ts"));
     fs.symlinkSync("../other.ts", path.join(dir, "src/B/target.ts"));

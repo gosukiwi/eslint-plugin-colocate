@@ -4,8 +4,6 @@ import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeRealpath } from "./fs-safe.js";
 import { extractSpecifiers } from "./parse.js";
 import { createResolutionSettings, resolveSpecifier, type ResolutionSettings } from "./resolve.js";
-import { isInsideDir } from "./paths.js";
-import { SOURCE_EXTS } from "./scope.js";
 import { collectSourceFiles } from "./walk.js";
 
 export interface Graph {
@@ -61,71 +59,9 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
 }
 
-const IMPORT_JS_EXTS = [".mjs", ".cjs", ".jsx", ".js"] as const;
-
-function probeGraphFile(base: string, fileSet: Set<string>): string | undefined {
-  if (fileSet.has(base)) {
-    return base;
-  }
-  for (const ext of SOURCE_EXTS) {
-    if (base.endsWith(ext)) {
-      return undefined;
-    }
-    const candidate = base + ext;
-    if (fileSet.has(candidate)) {
-      return candidate;
-    }
-  }
-  for (const ext of IMPORT_JS_EXTS) {
-    if (!base.endsWith(ext)) {
-      continue;
-    }
-    const stem = base.slice(0, -ext.length);
-    for (const sourceExt of SOURCE_EXTS) {
-      const candidate = stem + sourceExt;
-      if (fileSet.has(candidate)) {
-        return candidate;
-      }
-    }
-    return undefined;
-  }
-  return undefined;
-}
-
-function importerTarget(
-  specifier: string,
-  fromDir: string,
-  resolved: string,
-  fileSet: Set<string>,
-  filesByLowerCase: Map<string, string> | undefined,
-  retargetedWalks: ReadonlySet<string>,
-): string | undefined {
-  let target = fileSet.has(resolved)
-    ? resolved
-    : filesByLowerCase?.get(resolved.toLowerCase());
-  if (target === undefined) {
-    return undefined;
-  }
-  if (!specifier.startsWith(".")) {
-    return target;
-  }
-  const walkPath = probeGraphFile(path.resolve(fromDir, specifier), fileSet);
-  if (
-    walkPath !== undefined &&
-    walkPath !== target &&
-    safeRealpath(walkPath) === target &&
-    !isInsideDir(target, fromDir) &&
-    !retargetedWalks.has(walkPath)
-  ) {
-    return walkPath;
-  }
-  return target;
-}
-
 export function buildGraphFromFiles(
   files: readonly string[],
   resolvedRoot: string,
-  retargetedWalks: ReadonlySet<string> = new Set(),
 ): { graph: Graph; configPaths: string[] } {
   const fileSet = new Set(files);
   const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
@@ -150,14 +86,9 @@ export function buildGraphFromFiles(
       if (resolved === undefined) {
         continue;
       }
-      const target = importerTarget(
-        specifier,
-        fromDir,
-        resolved,
-        fileSet,
-        filesByLowerCase,
-        retargetedWalks,
-      );
+      const target = fileSet.has(resolved)
+        ? resolved
+        : filesByLowerCase?.get(resolved.toLowerCase());
       if (target === undefined || target === file) {
         continue;
       }
