@@ -3,7 +3,7 @@ import { minimatch } from "minimatch";
 import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
-import { canonicalGraphPath, getGraphResolutionSettings, } from "./graph.js";
+import { canonicalGraphPath, getGraphResolutionSettings, graphFilesInDir, } from "./graph.js";
 import { parseSourceFile } from "./parse.js";
 import { isInsideDir } from "./paths.js";
 import { resolveSpecifier } from "./resolve.js";
@@ -73,7 +73,7 @@ function isOwnerEntryFile(file, dir, graph) {
     return (graph.importers.get(file) ?? []).some((importer) => path.dirname(importer) !== dir);
 }
 function directoryHasMatchingEntry(dir, graph) {
-    return graph.files.some((file) => isOwnerEntryFile(file, dir, graph));
+    return graphFilesInDir(graph, dir).some((file) => isOwnerEntryFile(file, dir, graph));
 }
 export function getOwner(filePath, graph, rootDir) {
     let dir = path.dirname(filePath);

@@ -30,7 +30,7 @@ scripts/check-placement.ts  opt-in satisfiability sweep, both rules
 
 ## Derived indexes
 
-Every per-graph derived index — resolution settings, the member and folded-path indexes, gates, shells, layer directories — goes through `derivedFromGraph` in `src/lib/derived.ts`: do not hand-roll another `WeakMap<Graph, X>`, and do not hang feature state on `Graph` (it is `readonly` precisely so those indexes can be trusted for the graph's lifetime). Membership is one of those indexes: ask `graphHasFile` from `graph.ts`, never `new Set(graph.files)` per lint.
+Every per-graph derived index — resolution settings, the member and folded-path indexes, files-by-directory, gates, shells, layer directories — goes through `derivedFromGraph` in `src/lib/derived.ts`: do not hand-roll another `WeakMap<Graph, X>`, and do not hang feature state on `Graph` (it is `readonly` precisely so those indexes can be trusted for the graph's lifetime). Membership is one of those indexes: ask `graphHasFile` from `graph.ts`, never `new Set(graph.files)` per lint. Files in a directory are another: ask `graphFilesInDir`, never `graph.files.filter` by dirname.
 
 ## Rule adapters
 

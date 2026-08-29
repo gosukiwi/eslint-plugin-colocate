@@ -1,6 +1,6 @@
 import path from "node:path";
 import { safeReaddir, safeStat } from "./fs-safe.js";
-import { graphHasFile } from "./graph.js";
+import { graphFilesInDir, graphHasFile } from "./graph.js";
 import { collectReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
 import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
@@ -63,7 +63,7 @@ function isMismatchedEntry(indexFile, ctx) {
     if (dir === ctx.rootDir) {
         return false;
     }
-    const filesInDir = ctx.graph.files.filter((file) => path.dirname(file) === dir);
+    const filesInDir = graphFilesInDir(ctx.graph, dir);
     const outsideImporters = new Set();
     let allOutsideImportsTargetIndex = true;
     for (const fileInDir of filesInDir) {

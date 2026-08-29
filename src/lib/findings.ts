@@ -1,6 +1,6 @@
 import path from "node:path";
 import { safeReaddir, safeStat } from "./fs-safe.js";
-import { graphHasFile } from "./graph.js";
+import { graphFilesInDir, graphHasFile } from "./graph.js";
 import {
   collectReExports,
   getSharedColocationIssue,
@@ -107,9 +107,7 @@ function isMismatchedEntry(indexFile: string, ctx: OwnershipContext): boolean {
     return false;
   }
 
-  const filesInDir = ctx.graph.files.filter(
-    (file) => path.dirname(file) === dir,
-  );
+  const filesInDir = graphFilesInDir(ctx.graph, dir);
 
   const outsideImporters = new Set<string>();
   let allOutsideImportsTargetIndex = true;

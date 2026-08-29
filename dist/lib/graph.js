@@ -9,6 +9,24 @@ const graphFileSet = derivedFromGraph((graph) => new Set(graph.files));
 export function graphHasFile(graph, filePath) {
     return graphFileSet(graph).has(filePath);
 }
+function filesByParentDir(files) {
+    const byDir = new Map();
+    for (const file of files) {
+        const dir = path.dirname(file);
+        const list = byDir.get(dir);
+        if (list === undefined) {
+            byDir.set(dir, [file]);
+        }
+        else {
+            list.push(file);
+        }
+    }
+    return byDir;
+}
+const graphFilesByDir = derivedFromGraph((graph) => filesByParentDir(graph.files));
+export function graphFilesInDir(graph, dir) {
+    return graphFilesByDir(graph).get(dir) ?? [];
+}
 function foldGraphPath(filePath) {
     const normalized = filePath.normalize("NFC");
     return ts.sys.useCaseSensitiveFileNames
@@ -77,6 +95,7 @@ export function buildGraphFromFiles(files, resolvedRoot) {
     getGraphResolutionSettings.prime(graph, settings);
     graphFileSet.prime(graph, fileSet);
     graphFilesByFoldedPath.prime(graph, filesByFoldedPath);
+    graphFilesByDir.prime(graph, filesByParentDir(files));
     return { graph, configPaths: settings.configPaths };
 }
 export function buildGraphWithConfigs(rootDir, ignoreGlobs) {

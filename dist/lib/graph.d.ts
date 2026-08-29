@@ -4,6 +4,7 @@ export interface Graph {
     readonly files: readonly string[];
 }
 export declare function graphHasFile(graph: Graph, filePath: string): boolean;
+export declare function graphFilesInDir(graph: Graph, dir: string): readonly string[];
 export declare function canonicalGraphPath(graph: Graph, filePath: string): string;
 export declare const getGraphResolutionSettings: ((graph: Graph) => ResolutionSettings) & {
     prime: (graph: Graph, value: ResolutionSettings) => void;
