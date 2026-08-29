@@ -10,6 +10,7 @@ import {
   canonicalGraphPath,
   getGraphResolutionSettings,
   graphFilesInDir,
+  type Graph,
 } from "../src/lib/graph.js";
 import {
   createResolutionSettings,
@@ -492,7 +493,7 @@ describe("canonicalGraphPath", () => {
 });
 
 describe("graphFilesInDir", () => {
-  it("returns graph files in a directory sorted by path", () => {
+  it("returns graph files in a directory in graph.files order", () => {
     const base = fs.realpathSync(tempDir("colocate-files-by-dir-"));
     const srcDir = path.join(base, "src");
     const featDir = path.join(srcDir, "feat");
@@ -507,6 +508,31 @@ describe("graphFilesInDir", () => {
 
     expect(graphFilesInDir(graph, srcDir)).toEqual([aPath, bPath]);
     expect(graphFilesInDir(graph, featDir)).toEqual([featPath]);
+    expect(graphFilesInDir(graph, path.join(srcDir, "missing"))).toEqual([]);
+  });
+
+  it("works on an unprimed graph via the derived factory", () => {
+    const base = fs.realpathSync(tempDir("colocate-files-by-dir-unprimed-"));
+    const srcDir = path.join(base, "src");
+    const featDir = path.join(srcDir, "feat");
+    fs.mkdirSync(featDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
+    fs.writeFileSync(path.join(featDir, "Feat.ts"), "export const Feat = 1;\n");
+    const aPath = fs.realpathSync(path.join(srcDir, "a.ts"));
+    const bPath = fs.realpathSync(path.join(srcDir, "b.ts"));
+    const featPath = fs.realpathSync(path.join(featDir, "Feat.ts"));
+    const graph: Graph = {
+      files: [aPath, bPath, featPath],
+      importers: new Map(),
+    };
+
+    expect(new Set(graphFilesInDir(graph, srcDir))).toEqual(
+      new Set([aPath, bPath]),
+    );
+    expect(new Set(graphFilesInDir(graph, featDir))).toEqual(
+      new Set([featPath]),
+    );
     expect(graphFilesInDir(graph, path.join(srcDir, "missing"))).toEqual([]);
   });
 });

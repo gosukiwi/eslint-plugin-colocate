@@ -17,9 +17,9 @@ export function graphHasFile(graph: Graph, filePath: string): boolean {
   return graphFileSet(graph).has(filePath);
 }
 
-const graphFilesByDir = derivedFromGraph((graph) => {
+function filesByParentDir(files: readonly string[]): Map<string, string[]> {
   const byDir = new Map<string, string[]>();
-  for (const file of graph.files) {
+  for (const file of files) {
     const dir = path.dirname(file);
     const list = byDir.get(dir);
     if (list === undefined) {
@@ -29,7 +29,11 @@ const graphFilesByDir = derivedFromGraph((graph) => {
     }
   }
   return byDir;
-});
+}
+
+const graphFilesByDir = derivedFromGraph((graph) =>
+  filesByParentDir(graph.files),
+);
 
 export function graphFilesInDir(
   graph: Graph,
@@ -139,17 +143,7 @@ export function buildGraphFromFiles(
   getGraphResolutionSettings.prime(graph, settings);
   graphFileSet.prime(graph, fileSet);
   graphFilesByFoldedPath.prime(graph, filesByFoldedPath);
-  const filesByDir = new Map<string, string[]>();
-  for (const file of files) {
-    const dir = path.dirname(file);
-    const list = filesByDir.get(dir);
-    if (list === undefined) {
-      filesByDir.set(dir, [file]);
-    } else {
-      list.push(file);
-    }
-  }
-  graphFilesByDir.prime(graph, filesByDir);
+  graphFilesByDir.prime(graph, filesByParentDir(files));
   return { graph, configPaths: settings.configPaths };
 }
 
