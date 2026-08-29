@@ -26,24 +26,16 @@ export interface ReExports {
 
 const reExportsByGraph = derivedFromGraph(() => new Map<string, ReExports>());
 
-export function collectReExports(
+function scanReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
 ): ReExports {
-  const perGraph = reExportsByGraph(graph);
-  const cached = perGraph.get(indexFile);
-  if (cached !== undefined) {
-    return cached;
-  }
-
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
   const realIndex = safeRealpath(indexFile);
   if (content === undefined || realDir === undefined) {
-    const empty = { local: [], total: 0 };
-    perGraph.set(indexFile, empty);
-    return empty;
+    return { local: [], total: 0 };
   }
   const sourceFile = parseSourceFile(indexFile, content);
   const settings = getGraphResolutionSettings(graph);
@@ -73,8 +65,23 @@ export function collectReExports(
   };
 
   visit(sourceFile);
-  const result = { local: [...local], total: modules.size };
-  perGraph.set(indexFile, result);
+  return { local: [...local], total: modules.size };
+}
+
+export function collectReExports(
+  indexFile: string,
+  dir: string,
+  graph: Graph,
+): ReExports {
+  const key = indexFile + "\0" + dir;
+  const perGraph = reExportsByGraph(graph);
+  const cached = perGraph.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = scanReExports(indexFile, dir, graph);
+  perGraph.set(key, result);
   return result;
 }
 
