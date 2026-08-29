@@ -229,6 +229,23 @@ After changing owners, shells, layers, barrels, or what counts as a consumer, ru
 
 - ESM: TypeScript imports use `.js` specifiers (`from "../lib/graph.js"`).
 - Strict; `noUnusedLocals` / `noUnusedParameters`.
-- Comments explain *why* and the bug they close, not what the next line does.
+- No code comments. Only humans can add comments.
 - Prefer extending a fixture over adding options. Options exist for things the graph cannot infer (`layers`, generated files).
 - Do not parse or resolve with a second stack; reuse `parseSourceFile` from `parse.ts` and `resolveSpecifier` from `resolve.ts`. Do not re-derive "is this file in the model" either — `scope.ts` owns those predicates.
+
+Prefer discriminated unions over bags of optional fields or boolean flag arguments that fork a function into two behaviors.
+
+```ts
+// Bad
+type BannerProps = { isLoading?: boolean; error?: Error; message?: string };
+
+// Good
+type BannerProps =
+  | { status: "loading" }
+  | { status: "error"; error: Error }
+  | { status: "ready"; message: string };
+```
+
+A boolean argument that selects between two behaviors means you have two functions.
+
+Treat external data as `unknown` until parsed. Type public interfaces explicitly; prefer `unknown` plus narrowing over `any` at boundaries.
