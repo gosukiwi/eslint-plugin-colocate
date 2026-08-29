@@ -18,7 +18,7 @@ A throw from `ts.resolveModuleName` (malformed `tsconfig.json` `paths`) is treat
 
 ## Symlinks
 
-Follow while the real path stays inside `root`. Outside-root targets stay out of the graph (they cannot be reported; counting them as owners created phantom second owners). Sibling links to one real directory are both walked; nested links to the same real directory are entered at most once. Ignore applies to both the link path and the real path.
+Follow while the real path stays inside `root`. Outside-root targets stay out of the graph (they cannot be reported; counting them as owners created phantom second owners). An in-root file symlink is a graph member under both its walk path and its real path; specifiers are extracted only from the real path. Sibling links to one real directory are both walked; nested links to the same real directory are entered at most once. Ignore applies to both the link path and the real path.
 
 ## Case and normalisation
 

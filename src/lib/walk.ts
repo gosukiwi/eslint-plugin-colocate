@@ -81,6 +81,9 @@ function walkDir(
 
     if (isSourceFile(fullPath) && !isTestFile(relPath)) {
       files.add(realPath);
+      if (isLink && fullPath !== realPath) {
+        files.add(fullPath);
+      }
     }
   }
 }

@@ -26,6 +26,7 @@ interface Snapshot {
   configs: TsconfigStamp[];
   builtAt: number;
   coarseTimestamps: boolean;
+  symlinkTargets: Map<string, string>;
 }
 
 interface PassState {
@@ -121,6 +122,34 @@ function trackedFilesChanged(snapshot: Snapshot): boolean {
   return false;
 }
 
+function collectSymlinkTargets(files: readonly string[]): Map<string, string> {
+  const targets = new Map<string, string>();
+  for (const file of files) {
+    const real = safeRealpath(file);
+    if (real !== undefined && real !== file) {
+      targets.set(file, real);
+    }
+  }
+  return targets;
+}
+
+function retargetedWalkPaths(
+  previous: Map<string, string> | undefined,
+  current: Map<string, string>,
+): ReadonlySet<string> {
+  if (previous === undefined) {
+    return new Set();
+  }
+  const retargeted = new Set<string>();
+  for (const [walk, real] of current) {
+    const prior = previous.get(walk);
+    if (prior !== undefined && prior !== real) {
+      retargeted.add(walk);
+    }
+  }
+  return retargeted;
+}
+
 function isProductionGraphFile(
   currentFile: string,
   rootDir: string,
@@ -211,15 +240,26 @@ export function getGraph(
   let graph: Graph;
   let configPaths: string[];
   let stamps: Map<string, FileStamp>;
+  let symlinkTargets: Map<string, string>;
 
   if (resolvedRoot === undefined) {
     graph = { importers: new Map(), files: [] };
     configPaths = [];
     stamps = new Map();
+    symlinkTargets = new Map();
   } else {
     const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+    symlinkTargets = collectSymlinkTargets(files);
+    const retargetedWalks = retargetedWalkPaths(
+      cached?.snapshot.symlinkTargets,
+      symlinkTargets,
+    );
     stamps = stampFiles([...files, ...dirs]);
-    ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
+    ({ graph, configPaths } = buildGraphFromFiles(
+      files,
+      resolvedRoot,
+      retargetedWalks,
+    ));
   }
 
   const entry: CacheEntry = {
@@ -229,6 +269,7 @@ export function getGraph(
       configs: stampConfigs(configPaths),
       builtAt,
       coarseTimestamps: hasCoarseTimestamps(stamps),
+      symlinkTargets,
     },
     pass: {
       visited: new Set([currentFile]),

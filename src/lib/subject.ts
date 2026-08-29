@@ -2,9 +2,24 @@ import path from "node:path";
 import type { Rule } from "eslint";
 import { safeRealpath } from "./fs-safe.js";
 import { getGraph } from "./graph-cache.js";
-import type { Graph } from "./graph.js";
+import { type Graph } from "./graph.js";
 import { resolveRootDir } from "./root.js";
 import { isInGraphScope, isSourceFile } from "./scope.js";
+
+function hasSymlinkAliasImporter(graph: Graph, realFile: string): boolean {
+  for (const file of graph.files) {
+    if (file === realFile) {
+      continue;
+    }
+    if (safeRealpath(file) !== realFile) {
+      continue;
+    }
+    if ((graph.importers.get(file) ?? []).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export interface Subject {
   readonly rootDir: string;
@@ -41,14 +56,22 @@ export function resolveSubject(context: Rule.RuleContext): Subject | undefined {
     return undefined;
   }
 
-  let graph: Graph | undefined;
+  const graph = getGraph(rootDir, ignore, file, context.sourceCode);
+  if (
+    file === context.filename &&
+    hasSymlinkAliasImporter(graph, file) &&
+    (graph.importers.get(file) ?? []).length === 0
+  ) {
+    return undefined;
+  }
+
   return {
     rootDir,
     realRootDir,
     file,
     lintedPath: context.filename,
     ignore,
-    graph: () => (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
+    graph: () => graph,
     covers: (filePath) =>
       isSourceFile(filePath) &&
       isInGraphScope(path.relative(realRootDir, filePath), ignore),

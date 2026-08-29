@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { getGates } from "../src/lib/gates.js";
 import { getGraph, stampIsAmbiguous } from "../src/lib/graph-cache.js";
 import { buildGraph } from "../src/lib/graph.js";
 import { resolveSpecifier } from "../src/lib/resolve.js";
@@ -91,6 +92,49 @@ describe("walking the tree", () => {
     link(dir, "../../elsewhere/W.ts", "src/W/W.ts");
 
     expect(relFiles(dir, "src")).toEqual(["src/W/inner.ts"]);
+  });
+
+  it("records a file symlink's walk path and its in-root real path", () => {
+    const dir = project({
+      "src/shared/impl.ts": "export const i = 1;\n",
+      "src/Feature/util.ts": "export const u = 1;\n",
+    });
+    link(dir, "../shared/impl.ts", "src/Feature/Feature.ts");
+
+    const graph = buildGraph(path.join(dir, "src"), []);
+    const featureTs = path.join(dir, "src/Feature/Feature.ts");
+    const implTs = path.join(dir, "src/shared/impl.ts");
+
+    expect(graph.files).toContain(featureTs);
+    expect(graph.files).toContain(implTs);
+    expect(getGates(graph).get(path.dirname(featureTs))).toBe(featureTs);
+  });
+
+  it("does not record a file symlink whose real path is outside root", () => {
+    const dir = project({
+      "src/W/inner.ts": "export const i = 1;\n",
+      "elsewhere/out.ts": "export const o = 1;\n",
+    });
+    link(dir, "../../elsewhere/out.ts", "src/W/link.ts");
+
+    expect(relFiles(dir, "src")).toEqual(["src/W/inner.ts"]);
+  });
+
+  it("does not extract specifiers from a file symlink's walk path", () => {
+    const dir = project({
+      "src/shared/impl.ts": 'import "./sibling";\nexport const i = 1;\n',
+      "src/shared/sibling.ts": "export const s = 1;\n",
+      "src/Feature/util.ts": "export const u = 1;\n",
+    });
+    link(dir, "../shared/impl.ts", "src/Feature/Feature.ts");
+
+    const graph = buildGraph(path.join(dir, "src"), []);
+    const utilTs = path.join(dir, "src/Feature/util.ts");
+    const siblingTs = path.join(dir, "src/shared/sibling.ts");
+    const implTs = path.join(dir, "src/shared/impl.ts");
+
+    expect(graph.importers.get(utilTs)).toBeUndefined();
+    expect(graph.importers.get(siblingTs)).toEqual([implTs]);
   });
 
   it("keeps excluding a build directory reached through a symlink", () => {

@@ -184,6 +184,69 @@ describe("graph invalidation within one process", () => {
     ).toEqual([{ file: "src/app.ts", messageId: "reachesPastEntry" }]);
   });
 
+  it("treats a named door that is a file symlink as a door", async () => {
+    const dir = project({
+      "src/app.ts": 'import "./Feature/util";\n',
+      "src/Feature/util.ts": "export const u = 1;\n",
+      "src/shared/impl.ts": "export const i = 1;\n",
+    });
+    fs.symlinkSync(
+      path.join(dir, "src/shared/impl.ts"),
+      path.join(dir, "src/Feature/Feature.ts"),
+    );
+
+    const results = await makeESLint(
+      dir,
+      { root: "src" },
+      { rule: ["ownership", "entry"] },
+    ).lintFiles(["src"]);
+
+    expect(
+      collectRuleMessages(dir, results, "ownership").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).not.toContainEqual({
+      file: "src/Feature/util.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(
+      collectRuleMessages(dir, results, "entry").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).toEqual([{ file: "src/app.ts", messageId: "reachesPastEntry" }]);
+  });
+
+  it("rebuilds after a file symlink inside root is retargeted", async () => {
+    const dir = project({
+      "src/main.ts": 'import "./App";\n',
+      "src/App.ts": 'import "./B/B";\n',
+      "src/B/B.ts": 'import "./target";\nexport const b = 1;\n',
+      "src/fmt.ts": "export const f = 1;\n",
+      "src/other.ts": "export const o = 1;\n",
+    });
+    fs.symlinkSync("../fmt.ts", path.join(dir, "src/B/target.ts"));
+
+    expect(await lint(dir, ["src"])).toEqual([]);
+
+    fs.unlinkSync(path.join(dir, "src/B/target.ts"));
+    fs.symlinkSync("../other.ts", path.join(dir, "src/B/target.ts"));
+
+    const second = await lint(dir, ["src"]);
+    expect(second).toContainEqual({
+      file: "src/other.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(second).toContainEqual({
+      file: "src/B/target.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(second.filter((message) => message.file === "src/fmt.ts")).toEqual(
+      [],
+    );
+  });
+
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {
     const dir = project({
       ...APP,
