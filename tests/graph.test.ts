@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getGraph } from "../src/lib/graph-cache.js";
 import {
   canonicalGraphPath,
@@ -206,6 +206,64 @@ describe("getGraph", () => {
 
     expect(graph.importers.get(bPath)).toEqual([aPath]);
     expect(graph.files).toEqual([aPath, bPath]);
+  });
+
+  it("stats tracked files before reading them when building a cached graph", () => {
+    const base = fs.realpathSync(tempDir("colocate-stamp-order-"));
+    const srcDir = path.join(base, "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, "a.ts"), 'import "./b";\nexport const a = 1;\n');
+    fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
+    const aPath = fs.realpathSync(path.join(srcDir, "a.ts"));
+    const bPath = fs.realpathSync(path.join(srcDir, "b.ts"));
+
+    const events: Array<{ kind: "stat" | "read"; path: string }> = [];
+    const originalStat = fs.statSync.bind(fs);
+    const originalRead = fs.readFileSync.bind(fs);
+
+    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath, ...args) => {
+      const resolved =
+        typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+      if (resolved === aPath || resolved === bPath) {
+        events.push({ kind: "stat", path: resolved });
+      }
+      return originalStat(filePath as fs.PathLike, ...args);
+    });
+
+    const readSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath, ...args) => {
+        const resolved =
+          typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+        if (resolved === aPath || resolved === bPath) {
+          events.push({ kind: "read", path: resolved });
+        }
+        return originalRead(
+          filePath as Parameters<typeof fs.readFileSync>[0],
+          ...(args as Parameters<typeof fs.readFileSync> extends [unknown, ...infer R]
+            ? R
+            : never),
+        );
+      });
+
+    try {
+      getGraph(srcDir, [], aPath);
+    } finally {
+      statSpy.mockRestore();
+      readSpy.mockRestore();
+    }
+
+    for (const tracked of [aPath, bPath]) {
+      const firstStat = events.findIndex(
+        (event) => event.kind === "stat" && event.path === tracked,
+      );
+      const firstRead = events.findIndex(
+        (event) => event.kind === "read" && event.path === tracked,
+      );
+      expect(firstStat).toBeGreaterThanOrEqual(0);
+      expect(firstRead).toBeGreaterThanOrEqual(0);
+      expect(firstStat).toBeLessThan(firstRead);
+    }
   });
 
   it("resolves a bare directory specifier to its index file", () => {

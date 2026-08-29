@@ -1,8 +1,9 @@
 import path from "node:path";
 import { safeRealpath, safeStat } from "./fs-safe.js";
-import { buildGraphWithConfigs, type Graph } from "./graph.js";
+import { buildGraphFromFiles, type Graph } from "./graph.js";
 import { findTsconfig } from "./resolve.js";
 import { isInGraphScope, isSourceFile } from "./scope.js";
+import { collectSourceFiles } from "./walk.js";
 
 export type VisitToken = object;
 
@@ -205,22 +206,35 @@ export function getGraph(
     return cached.snapshot.graph;
   }
 
-  const { graph, configPaths, dirs } = buildGraphWithConfigs(rootDir, ignoreGlobs);
-  const stamps = stampFiles([...graph.files, ...dirs]);
-  const now = Date.now();
+  const builtAt = Date.now();
+  const resolvedRoot = safeRealpath(rootDir);
+  let graph: Graph;
+  let configPaths: string[];
+  let stamps: Map<string, FileStamp>;
+
+  if (resolvedRoot === undefined) {
+    graph = { importers: new Map(), files: [] };
+    configPaths = [];
+    stamps = new Map();
+  } else {
+    const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+    stamps = stampFiles([...files, ...dirs]);
+    ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
+  }
+
   const entry: CacheEntry = {
     snapshot: {
       graph,
       stamps,
       configs: stampConfigs(configPaths),
-      builtAt: now,
+      builtAt,
       coarseTimestamps: hasCoarseTimestamps(stamps),
     },
     pass: {
       visited: new Set([currentFile]),
       lastFile: undefined,
       lastToken: undefined,
-      validatedAt: now,
+      validatedAt: builtAt,
     },
   };
   cache.set(key, entry);

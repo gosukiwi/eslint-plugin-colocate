@@ -59,16 +59,10 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
   return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
 }
 
-export function buildGraphWithConfigs(
-  rootDir: string,
-  ignoreGlobs: string[],
-): { graph: Graph; configPaths: string[]; dirs: string[] } {
-  const resolvedRoot = safeRealpath(rootDir);
-  if (resolvedRoot === undefined) {
-    return { graph: { importers: new Map(), files: [] }, configPaths: [], dirs: [] };
-  }
-  const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
-
+export function buildGraphFromFiles(
+  files: readonly string[],
+  resolvedRoot: string,
+): { graph: Graph; configPaths: string[] } {
   const fileSet = new Set(files);
   const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
     ? undefined
@@ -107,5 +101,18 @@ export function buildGraphWithConfigs(
   const graph: Graph = { importers, files };
   getGraphResolutionSettings.prime(graph, settings);
   graphFileSet.prime(graph, fileSet);
-  return { graph, configPaths: settings.configPaths, dirs };
+  return { graph, configPaths: settings.configPaths };
+}
+
+export function buildGraphWithConfigs(
+  rootDir: string,
+  ignoreGlobs: string[],
+): { graph: Graph; configPaths: string[]; dirs: string[] } {
+  const resolvedRoot = safeRealpath(rootDir);
+  if (resolvedRoot === undefined) {
+    return { graph: { importers: new Map(), files: [] }, configPaths: [], dirs: [] };
+  }
+  const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+  const { graph, configPaths } = buildGraphFromFiles(files, resolvedRoot);
+  return { graph, configPaths, dirs };
 }
