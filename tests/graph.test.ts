@@ -208,6 +208,57 @@ describe("getGraph", () => {
     expect(graph.files).toEqual([aPath, bPath]);
   });
 
+  it("stats walked directories before reading their entries when building a cached graph", () => {
+    const dir = fs.realpathSync(tempDir("colocate-dir-stamp-order-"));
+    const srcDir = path.join(dir, "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
+    const aPath = fs.realpathSync(path.join(srcDir, "a.ts"));
+    const walkedDir = fs.realpathSync(srcDir);
+
+    const events: Array<{ kind: "stat" | "readdir"; path: string }> = [];
+    const originalStat = fs.statSync.bind(fs);
+    const originalReaddir = fs.readdirSync.bind(fs);
+
+    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath, ...args) => {
+      const resolved =
+        typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+      if (resolved === walkedDir) {
+        events.push({ kind: "stat", path: resolved });
+      }
+      return originalStat(filePath as fs.PathLike, ...args);
+    });
+
+    const readdirSpy = vi
+      .spyOn(fs, "readdirSync")
+      .mockImplementation((filePath, ...args) => {
+        const resolved =
+          typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+        if (resolved === walkedDir) {
+          events.push({ kind: "readdir", path: resolved });
+        }
+        return originalReaddir(
+          filePath as Parameters<typeof fs.readdirSync>[0],
+          ...(args as Parameters<typeof fs.readdirSync> extends [unknown, ...infer R]
+            ? R
+            : never),
+        );
+      });
+
+    try {
+      getGraph(srcDir, [], aPath);
+    } finally {
+      statSpy.mockRestore();
+      readdirSpy.mockRestore();
+    }
+
+    const firstStat = events.findIndex((event) => event.kind === "stat");
+    const firstReaddir = events.findIndex((event) => event.kind === "readdir");
+    expect(firstStat).toBeGreaterThanOrEqual(0);
+    expect(firstReaddir).toBeGreaterThanOrEqual(0);
+    expect(firstStat).toBeLessThan(firstReaddir);
+  });
+
   it("stats tracked files before reading them when building a cached graph", () => {
     const base = fs.realpathSync(tempDir("colocate-stamp-order-"));
     const srcDir = path.join(base, "src");

@@ -217,8 +217,11 @@ export function getGraph(
     configPaths = [];
     stamps = new Map();
   } else {
-    const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
-    stamps = stampFiles([...files, ...dirs]);
+    const { files, dirStamps } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+    stamps = stampFiles(files);
+    for (const [dir, stamp] of dirStamps) {
+      stamps.set(dir, stamp);
+    }
     ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
   }
 
