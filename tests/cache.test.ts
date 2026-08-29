@@ -6,7 +6,11 @@ import tsParser from "@typescript-eslint/parser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
 import plugin from "../src/index.js";
-import { collectMessages, makeESLint } from "./helpers/lint-fixture.js";
+import {
+  collectMessages,
+  collectRuleMessages,
+  makeESLint,
+} from "./helpers/lint-fixture.js";
 
 const created: string[] = [];
 
@@ -156,6 +160,102 @@ describe("graph invalidation within one process", () => {
     expect(collectMessages(dir, second)).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
     ]);
+  });
+
+  it("reports reachesPastEntry on an already-linted importer after a door file is created", async () => {
+    const dir = project({
+      "src/app.ts": 'import "./Feature/state";\n',
+      "src/Feature/state.ts": "export const s = 1;\n",
+    });
+    const options = { root: "src" };
+    const eslint = makeESLint(dir, options, { rule: "entry" });
+
+    const first = await eslint.lintFiles(["src/app.ts"]);
+    expect(collectRuleMessages(dir, first, "entry")).toEqual([]);
+
+    write(dir, { "src/Feature/index.ts": "export const door = 1;\n" });
+
+    const second = await eslint.lintFiles(["src/app.ts"]);
+    expect(
+      collectRuleMessages(dir, second, "entry").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).toEqual([{ file: "src/app.ts", messageId: "reachesPastEntry" }]);
+  });
+
+  it("treats a named door that is a file symlink as a door", async () => {
+    const dir = project({
+      "src/app.ts": 'import "./Feature/util";\n',
+      "src/Feature/util.ts": "export const u = 1;\n",
+      "src/shared/impl.ts": "export const i = 1;\n",
+    });
+    fs.symlinkSync(
+      path.join(dir, "src/shared/impl.ts"),
+      path.join(dir, "src/Feature/Feature.ts"),
+    );
+
+    const results = await makeESLint(
+      dir,
+      { root: "src" },
+      { rule: ["ownership", "entry"] },
+    ).lintFiles(["src"]);
+
+    expect(
+      collectRuleMessages(dir, results, "ownership").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).not.toContainEqual({
+      file: "src/Feature/util.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(
+      collectRuleMessages(dir, results, "entry").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).toEqual([{ file: "src/app.ts", messageId: "reachesPastEntry" }]);
+  });
+
+  it("rebuilds after a file symlink inside root is retargeted", async () => {
+    const dir = project({
+      "src/main.ts": 'import "./App";\n',
+      "src/App.ts": 'import "./B/B";\n',
+      "src/B/B.ts": 'import "./target";\nexport const b = 1;\n',
+      "src/fmt.ts": "export const f = 1;\n",
+      "src/other.ts": "export const o = 1;\n",
+    });
+    fs.symlinkSync("../fmt.ts", path.join(dir, "src/B/target.ts"));
+
+    const first = await lint(dir, ["src"]);
+    expect(first).toContainEqual({
+      file: "src/fmt.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(first).toContainEqual({
+      file: "src/B/target.ts",
+      messageId: "privateOutsideOwner",
+    });
+
+    fs.unlinkSync(path.join(dir, "src/B/target.ts"));
+    fs.symlinkSync("../other.ts", path.join(dir, "src/B/target.ts"));
+    await new Promise((resolve) =>
+      setTimeout(resolve, REVALIDATE_AFTER_MS + 50),
+    );
+
+    const second = await lint(dir, ["src"]);
+    expect(second).toContainEqual({
+      file: "src/other.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(second).toContainEqual({
+      file: "src/B/target.ts",
+      messageId: "privateOutsideOwner",
+    });
+    expect(second.filter((message) => message.file === "src/fmt.ts")).toEqual(
+      [],
+    );
   });
 
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {

@@ -1,8 +1,9 @@
 import path from "node:path";
 import { safeRealpath, safeStat } from "./fs-safe.js";
-import { buildGraphWithConfigs, type Graph } from "./graph.js";
+import { buildGraphFromFiles, type Graph } from "./graph.js";
 import { findTsconfig } from "./resolve.js";
 import { isInGraphScope, isSourceFile } from "./scope.js";
+import { collectSourceFiles } from "./walk.js";
 
 export type VisitToken = object;
 
@@ -24,6 +25,7 @@ interface Snapshot {
   stamps: Map<string, FileStamp>;
   configs: TsconfigStamp[];
   builtAt: number;
+  stampedAt: number;
   coarseTimestamps: boolean;
 }
 
@@ -80,12 +82,14 @@ export function stampIsAmbiguous(
   mtimeMs: number,
   builtAt: number,
   coarseTimestamps: boolean,
+  stampedAt: number,
 ): boolean {
   if (!coarseTimestamps) {
     return false;
   }
   const buildSecond = Math.floor(builtAt / 1000) * 1000;
-  return mtimeMs >= buildSecond && mtimeMs < buildSecond + 1000;
+  const stampedSecond = Math.floor(stampedAt / 1000) * 1000 + 1000;
+  return mtimeMs >= buildSecond && mtimeMs < stampedSecond;
 }
 
 function tsconfigNeedsRebuild(snapshot: Snapshot, rootDir: string): boolean {
@@ -112,7 +116,12 @@ function trackedFilesChanged(snapshot: Snapshot): boolean {
       return true;
     }
     if (
-      stampIsAmbiguous(stat.mtimeMs, snapshot.builtAt, snapshot.coarseTimestamps)
+      stampIsAmbiguous(
+        stat.mtimeMs,
+        snapshot.builtAt,
+        snapshot.coarseTimestamps,
+        snapshot.stampedAt,
+      )
     ) {
       return true;
     }
@@ -205,22 +214,39 @@ export function getGraph(
     return cached.snapshot.graph;
   }
 
-  const { graph, configPaths } = buildGraphWithConfigs(rootDir, ignoreGlobs);
-  const stamps = stampFiles(graph.files);
-  const now = Date.now();
+  const builtAt = Date.now();
+  const resolvedRoot = safeRealpath(rootDir);
+  let graph: Graph;
+  let configPaths: string[];
+  let stamps: Map<string, FileStamp>;
+
+  if (resolvedRoot === undefined) {
+    graph = { importers: new Map(), files: [] };
+    configPaths = [];
+    stamps = new Map();
+  } else {
+    const { files, dirStamps } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+    stamps = stampFiles(files);
+    for (const [dir, stamp] of dirStamps) {
+      stamps.set(dir, stamp);
+    }
+    ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
+  }
+
   const entry: CacheEntry = {
     snapshot: {
       graph,
       stamps,
       configs: stampConfigs(configPaths),
-      builtAt: now,
+      builtAt,
+      stampedAt: Date.now(),
       coarseTimestamps: hasCoarseTimestamps(stamps),
     },
     pass: {
       visited: new Set([currentFile]),
       lastFile: undefined,
       lastToken: undefined,
-      validatedAt: now,
+      validatedAt: builtAt,
     },
   };
   cache.set(key, entry);

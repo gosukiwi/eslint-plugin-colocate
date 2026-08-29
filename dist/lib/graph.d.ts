@@ -9,6 +9,10 @@ export declare const getGraphResolutionSettings: ((graph: Graph) => ResolutionSe
     prime: (graph: Graph, value: ResolutionSettings) => void;
 };
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
+export declare function buildGraphFromFiles(files: readonly string[], resolvedRoot: string): {
+    graph: Graph;
+    configPaths: string[];
+};
 export declare function buildGraphWithConfigs(rootDir: string, ignoreGlobs: string[]): {
     graph: Graph;
     configPaths: string[];

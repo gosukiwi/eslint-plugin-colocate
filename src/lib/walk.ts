@@ -14,6 +14,7 @@ function walkDir(
   rootDir: string,
   ignoreGlobs: string[],
   files: Set<string>,
+  dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>,
   ancestorRealDirs: Set<string>,
   linkedRealDirs: Set<string>,
   behindLink: boolean,
@@ -21,6 +22,14 @@ function walkDir(
   const realDir = safeRealpath(dir);
   if (realDir === undefined || ancestorRealDirs.has(realDir)) {
     return;
+  }
+  const stat = safeStat(dir);
+  if (stat !== undefined) {
+    dirStamps.set(dir, {
+      mtimeMs: stat.mtimeMs,
+      ctimeMs: stat.ctimeMs,
+      size: stat.size,
+    });
   }
   const nested = new Set(ancestorRealDirs).add(realDir);
 
@@ -69,6 +78,7 @@ function walkDir(
         rootDir,
         ignoreGlobs,
         files,
+        dirStamps,
         nested,
         linkedRealDirs,
         behindLink || isLink,
@@ -78,6 +88,9 @@ function walkDir(
 
     if (isSourceFile(fullPath) && !isTestFile(relPath)) {
       files.add(realPath);
+      if (isLink && fullPath !== realPath) {
+        files.add(fullPath);
+      }
     }
   }
 }
@@ -85,16 +98,27 @@ function walkDir(
 export function collectSourceFiles(
   resolvedRoot: string,
   ignoreGlobs: string[],
-): string[] {
+): {
+  files: string[];
+  dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>;
+} {
   const collected = new Set<string>();
+  const dirStamps = new Map<
+    string,
+    { mtimeMs: number; ctimeMs: number; size: number }
+  >();
   walkDir(
     resolvedRoot,
     resolvedRoot,
     ignoreGlobs,
     collected,
+    dirStamps,
     new Set(),
     new Set(),
     false,
   );
-  return [...collected].sort();
+  return {
+    files: [...collected].sort(),
+    dirStamps,
+  };
 }

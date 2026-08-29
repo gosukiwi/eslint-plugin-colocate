@@ -48,18 +48,22 @@ describe("stampIsAmbiguous", () => {
   const builtAt = 5_000_500;
 
   it("distrusts a stamp written in the same second as the build", () => {
-    expect(stampIsAmbiguous(5_000_000, builtAt, true)).toBe(true);
+    expect(stampIsAmbiguous(5_000_000, builtAt, true, builtAt)).toBe(true);
   });
 
   it("trusts a stamp from an earlier second", () => {
-    expect(stampIsAmbiguous(4_999_000, builtAt, true)).toBe(false);
+    expect(stampIsAmbiguous(4_999_000, builtAt, true, builtAt)).toBe(false);
   });
 
   it("trusts a stamp from a later second", () => {
-    expect(stampIsAmbiguous(5_002_000, builtAt, true)).toBe(false);
+    expect(stampIsAmbiguous(5_002_000, builtAt, true, builtAt)).toBe(false);
+  });
+
+  it("distrusts a stamp written in a later second that is still within the rebuild", () => {
+    expect(stampIsAmbiguous(5_002_000, builtAt, true, 5_002_500)).toBe(true);
   });
 
   it("trusts everything when timestamps are fine-grained", () => {
-    expect(stampIsAmbiguous(5_000_000, builtAt, false)).toBe(false);
+    expect(stampIsAmbiguous(5_000_000, builtAt, false, builtAt)).toBe(false);
   });
 });

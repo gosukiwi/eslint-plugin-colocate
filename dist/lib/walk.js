@@ -2,10 +2,18 @@ import path from "node:path";
 import { safeReaddir, safeRealpath, safeStat } from "./fs-safe.js";
 import { isAtOrInsideDir } from "./paths.js";
 import { isExcludedPath, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
-function walkDir(dir, rootDir, ignoreGlobs, files, ancestorRealDirs, linkedRealDirs, behindLink) {
+function walkDir(dir, rootDir, ignoreGlobs, files, dirStamps, ancestorRealDirs, linkedRealDirs, behindLink) {
     const realDir = safeRealpath(dir);
     if (realDir === undefined || ancestorRealDirs.has(realDir)) {
         return;
+    }
+    const stat = safeStat(dir);
+    if (stat !== undefined) {
+        dirStamps.set(dir, {
+            mtimeMs: stat.mtimeMs,
+            ctimeMs: stat.ctimeMs,
+            size: stat.size,
+        });
     }
     const nested = new Set(ancestorRealDirs).add(realDir);
     for (const entry of safeReaddir(dir)) {
@@ -44,16 +52,23 @@ function walkDir(dir, rootDir, ignoreGlobs, files, ancestorRealDirs, linkedRealD
                 }
                 linkedRealDirs.add(realPath);
             }
-            walkDir(fullPath, rootDir, ignoreGlobs, files, nested, linkedRealDirs, behindLink || isLink);
+            walkDir(fullPath, rootDir, ignoreGlobs, files, dirStamps, nested, linkedRealDirs, behindLink || isLink);
             continue;
         }
         if (isSourceFile(fullPath) && !isTestFile(relPath)) {
             files.add(realPath);
+            if (isLink && fullPath !== realPath) {
+                files.add(fullPath);
+            }
         }
     }
 }
 export function collectSourceFiles(resolvedRoot, ignoreGlobs) {
     const collected = new Set();
-    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, new Set(), new Set(), false);
-    return [...collected].sort();
+    const dirStamps = new Map();
+    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, dirStamps, new Set(), new Set(), false);
+    return {
+        files: [...collected].sort(),
+        dirStamps,
+    };
 }
