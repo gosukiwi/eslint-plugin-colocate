@@ -166,6 +166,19 @@ describe("entry rule", () => {
     ]);
   });
 
+  it("reports dynamic import nested in lazy(() => import())", async () => {
+    const messages = await lintEntryFixture("entry-lazy-import", { root: "src" });
+    expect(messages).toEqual([
+      {
+        file: "src/app.ts",
+        messageId: "reachesPastEntry",
+        line: 1,
+        message:
+          "'Feature/helper.ts' is inside module 'Feature'; import it through 'Feature/Feature.ts', or move it out of 'Feature' if it is not part of it.",
+      },
+    ]);
+  });
+
   it("ignores a require shadowed by a parameter", async () => {
     const messages = await lintEntryFixture("entry-require", { root: "src" });
     expect(messages).toEqual([
