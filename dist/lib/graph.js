@@ -16,11 +16,14 @@ function foldGraphPath(filePath) {
         : normalized.toLowerCase();
 }
 const graphFilesByFoldedPath = derivedFromGraph((graph) => new Map(graph.files.map((file) => [foldGraphPath(file), file])));
-export function canonicalGraphPath(graph, filePath) {
-    if (graphFileSet(graph).has(filePath)) {
+function graphFileForPath(fileSet, filesByFoldedPath, filePath) {
+    if (fileSet.has(filePath)) {
         return filePath;
     }
-    return graphFilesByFoldedPath(graph).get(foldGraphPath(filePath)) ?? filePath;
+    return filesByFoldedPath.get(foldGraphPath(filePath));
+}
+export function canonicalGraphPath(graph, filePath) {
+    return (graphFileForPath(graphFileSet(graph), graphFilesByFoldedPath(graph), filePath) ?? filePath);
 }
 function noProjectResolutionSettings() {
     const resolutionOptions = {
@@ -57,9 +60,7 @@ export function buildGraphFromFiles(files, resolvedRoot) {
             if (resolved === undefined) {
                 continue;
             }
-            const target = fileSet.has(resolved)
-                ? resolved
-                : filesByFoldedPath.get(foldGraphPath(resolved));
+            const target = graphFileForPath(fileSet, filesByFoldedPath, resolved);
             if (target === undefined || target === file) {
                 continue;
             }
