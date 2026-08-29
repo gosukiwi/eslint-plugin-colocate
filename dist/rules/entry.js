@@ -125,7 +125,7 @@ const rule = {
             // invariant.
             TSImportType: (node) => check(node.source ?? node.argument?.literal),
             TSImportEqualsDeclaration: (node) => {
-                if (node.moduleReference.type === "TSExternalModuleReference") {
+                if (node.moduleReference?.type === "TSExternalModuleReference") {
                     check(node.moduleReference.expression);
                 }
             },
