@@ -14,7 +14,6 @@ function walkDir(
   rootDir: string,
   ignoreGlobs: string[],
   files: Set<string>,
-  dirs: Set<string>,
   dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>,
   ancestorRealDirs: Set<string>,
   linkedRealDirs: Set<string>,
@@ -24,7 +23,6 @@ function walkDir(
   if (realDir === undefined || ancestorRealDirs.has(realDir)) {
     return;
   }
-  dirs.add(dir);
   const stat = safeStat(dir);
   if (stat !== undefined) {
     dirStamps.set(dir, {
@@ -80,7 +78,6 @@ function walkDir(
         rootDir,
         ignoreGlobs,
         files,
-        dirs,
         dirStamps,
         nested,
         linkedRealDirs,
@@ -103,11 +100,9 @@ export function collectSourceFiles(
   ignoreGlobs: string[],
 ): {
   files: string[];
-  dirs: string[];
   dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>;
 } {
   const collected = new Set<string>();
-  const walkedDirs = new Set<string>();
   const dirStamps = new Map<
     string,
     { mtimeMs: number; ctimeMs: number; size: number }
@@ -117,7 +112,6 @@ export function collectSourceFiles(
     resolvedRoot,
     ignoreGlobs,
     collected,
-    walkedDirs,
     dirStamps,
     new Set(),
     new Set(),
@@ -125,7 +119,6 @@ export function collectSourceFiles(
   );
   return {
     files: [...collected].sort(),
-    dirs: [...walkedDirs].sort(),
     dirStamps,
   };
 }

@@ -37,7 +37,7 @@ function stampConfigs(configPaths) {
     }
     return stamps;
 }
-export function stampIsAmbiguous(mtimeMs, builtAt, coarseTimestamps, stampedAt = builtAt) {
+export function stampIsAmbiguous(mtimeMs, builtAt, coarseTimestamps, stampedAt) {
     if (!coarseTimestamps) {
         return false;
     }

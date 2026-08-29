@@ -111,12 +111,12 @@ export function buildGraphFromFiles(
 export function buildGraphWithConfigs(
   rootDir: string,
   ignoreGlobs: string[],
-): { graph: Graph; configPaths: string[]; dirs: string[] } {
+): { graph: Graph; configPaths: string[] } {
   const resolvedRoot = safeRealpath(rootDir);
   if (resolvedRoot === undefined) {
-    return { graph: { importers: new Map(), files: [] }, configPaths: [], dirs: [] };
+    return { graph: { importers: new Map(), files: [] }, configPaths: [] };
   }
-  const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+  const { files } = collectSourceFiles(resolvedRoot, ignoreGlobs);
   const { graph, configPaths } = buildGraphFromFiles(files, resolvedRoot);
-  return { graph, configPaths, dirs };
+  return { graph, configPaths };
 }

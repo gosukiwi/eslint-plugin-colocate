@@ -16,5 +16,4 @@ export declare function buildGraphFromFiles(files: readonly string[], resolvedRo
 export declare function buildGraphWithConfigs(rootDir: string, ignoreGlobs: string[]): {
     graph: Graph;
     configPaths: string[];
-    dirs: string[];
 };

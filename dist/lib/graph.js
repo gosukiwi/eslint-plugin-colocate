@@ -82,9 +82,9 @@ export function buildGraphFromFiles(files, resolvedRoot) {
 export function buildGraphWithConfigs(rootDir, ignoreGlobs) {
     const resolvedRoot = safeRealpath(rootDir);
     if (resolvedRoot === undefined) {
-        return { graph: { importers: new Map(), files: [] }, configPaths: [], dirs: [] };
+        return { graph: { importers: new Map(), files: [] }, configPaths: [] };
     }
-    const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
+    const { files } = collectSourceFiles(resolvedRoot, ignoreGlobs);
     const { graph, configPaths } = buildGraphFromFiles(files, resolvedRoot);
-    return { graph, configPaths, dirs };
+    return { graph, configPaths };
 }

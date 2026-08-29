@@ -82,7 +82,7 @@ export function stampIsAmbiguous(
   mtimeMs: number,
   builtAt: number,
   coarseTimestamps: boolean,
-  stampedAt: number = builtAt,
+  stampedAt: number,
 ): boolean {
   if (!coarseTimestamps) {
     return false;

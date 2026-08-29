@@ -2,12 +2,11 @@ import path from "node:path";
 import { safeReaddir, safeRealpath, safeStat } from "./fs-safe.js";
 import { isAtOrInsideDir } from "./paths.js";
 import { isExcludedPath, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
-function walkDir(dir, rootDir, ignoreGlobs, files, dirs, dirStamps, ancestorRealDirs, linkedRealDirs, behindLink) {
+function walkDir(dir, rootDir, ignoreGlobs, files, dirStamps, ancestorRealDirs, linkedRealDirs, behindLink) {
     const realDir = safeRealpath(dir);
     if (realDir === undefined || ancestorRealDirs.has(realDir)) {
         return;
     }
-    dirs.add(dir);
     const stat = safeStat(dir);
     if (stat !== undefined) {
         dirStamps.set(dir, {
@@ -53,7 +52,7 @@ function walkDir(dir, rootDir, ignoreGlobs, files, dirs, dirStamps, ancestorReal
                 }
                 linkedRealDirs.add(realPath);
             }
-            walkDir(fullPath, rootDir, ignoreGlobs, files, dirs, dirStamps, nested, linkedRealDirs, behindLink || isLink);
+            walkDir(fullPath, rootDir, ignoreGlobs, files, dirStamps, nested, linkedRealDirs, behindLink || isLink);
             continue;
         }
         if (isSourceFile(fullPath) && !isTestFile(relPath)) {
@@ -66,12 +65,10 @@ function walkDir(dir, rootDir, ignoreGlobs, files, dirs, dirStamps, ancestorReal
 }
 export function collectSourceFiles(resolvedRoot, ignoreGlobs) {
     const collected = new Set();
-    const walkedDirs = new Set();
     const dirStamps = new Map();
-    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, walkedDirs, dirStamps, new Set(), new Set(), false);
+    walkDir(resolvedRoot, resolvedRoot, ignoreGlobs, collected, dirStamps, new Set(), new Set(), false);
     return {
         files: [...collected].sort(),
-        dirs: [...walkedDirs].sort(),
         dirStamps,
     };
 }
