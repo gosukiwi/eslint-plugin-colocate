@@ -64,9 +64,9 @@ export function buildGraphFromFiles(
   resolvedRoot: string,
 ): { graph: Graph; configPaths: string[] } {
   const fileSet = new Set(files);
-  const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
-    ? undefined
-    : new Map(files.map((file) => [file.toLowerCase(), file]));
+  const filesByFoldedPath = new Map(
+    files.map((file) => [foldGraphPath(file), file]),
+  );
   const importers = new Map<string, string[]>();
   const settings = createResolutionSettings(resolvedRoot);
 
@@ -88,7 +88,7 @@ export function buildGraphFromFiles(
       }
       const target = fileSet.has(resolved)
         ? resolved
-        : filesByLowerCase?.get(resolved.toLowerCase());
+        : filesByFoldedPath.get(foldGraphPath(resolved));
       if (target === undefined || target === file) {
         continue;
       }
@@ -105,6 +105,7 @@ export function buildGraphFromFiles(
   const graph: Graph = { importers, files };
   getGraphResolutionSettings.prime(graph, settings);
   graphFileSet.prime(graph, fileSet);
+  graphFilesByFoldedPath.prime(graph, filesByFoldedPath);
   return { graph, configPaths: settings.configPaths };
 }
 
