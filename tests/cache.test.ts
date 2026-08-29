@@ -240,6 +240,9 @@ describe("graph invalidation within one process", () => {
 
     fs.unlinkSync(path.join(dir, "src/B/target.ts"));
     fs.symlinkSync("../other.ts", path.join(dir, "src/B/target.ts"));
+    await new Promise((resolve) =>
+      setTimeout(resolve, REVALIDATE_AFTER_MS + 50),
+    );
 
     const second = await lint(dir, ["src"]);
     expect(second).toContainEqual({
