@@ -141,6 +141,23 @@ describe("getGraph", () => {
     }
   });
 
+  it("rebuilds the cached graph when a new production file appears and currentFile is an already-known file", () => {
+    const rootDir = fs.realpathSync(fixtureRoot);
+    const aPath = path.join(rootDir, "src/a.ts");
+    const newFile = path.join(rootDir, "src/new-file.ts");
+
+    const first = getGraph(rootDir, [], aPath);
+
+    try {
+      fs.writeFileSync(newFile, "export const newFile = 1;\n");
+      const second = getGraph(rootDir, [], aPath);
+      expect(second).not.toBe(first);
+      expect(second.files).toContain(fs.realpathSync(newFile));
+    } finally {
+      fs.rmSync(newFile, { force: true });
+    }
+  });
+
   it("rebuilds the cached graph when tsconfig mtime changes", () => {
     const rootDir = fs.realpathSync(path.join(aliasPrivateFixtureRoot, "src"));
     const mainPath = path.join(rootDir, "main.ts");

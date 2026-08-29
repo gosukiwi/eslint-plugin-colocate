@@ -62,12 +62,12 @@ export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {
 export function buildGraphWithConfigs(
   rootDir: string,
   ignoreGlobs: string[],
-): { graph: Graph; configPaths: string[] } {
+): { graph: Graph; configPaths: string[]; dirs: string[] } {
   const resolvedRoot = safeRealpath(rootDir);
   if (resolvedRoot === undefined) {
-    return { graph: { importers: new Map(), files: [] }, configPaths: [] };
+    return { graph: { importers: new Map(), files: [] }, configPaths: [], dirs: [] };
   }
-  const files = collectSourceFiles(resolvedRoot, ignoreGlobs);
+  const { files, dirs } = collectSourceFiles(resolvedRoot, ignoreGlobs);
 
   const fileSet = new Set(files);
   const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
@@ -107,5 +107,5 @@ export function buildGraphWithConfigs(
   const graph: Graph = { importers, files };
   getGraphResolutionSettings.prime(graph, settings);
   graphFileSet.prime(graph, fileSet);
-  return { graph, configPaths: settings.configPaths };
+  return { graph, configPaths: settings.configPaths, dirs };
 }

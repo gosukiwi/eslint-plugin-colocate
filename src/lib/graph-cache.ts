@@ -205,8 +205,8 @@ export function getGraph(
     return cached.snapshot.graph;
   }
 
-  const { graph, configPaths } = buildGraphWithConfigs(rootDir, ignoreGlobs);
-  const stamps = stampFiles(graph.files);
+  const { graph, configPaths, dirs } = buildGraphWithConfigs(rootDir, ignoreGlobs);
+  const stamps = stampFiles([...graph.files, ...dirs]);
   const now = Date.now();
   const entry: CacheEntry = {
     snapshot: {

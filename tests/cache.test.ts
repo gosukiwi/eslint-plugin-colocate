@@ -6,7 +6,11 @@ import tsParser from "@typescript-eslint/parser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
 import plugin from "../src/index.js";
-import { collectMessages, makeESLint } from "./helpers/lint-fixture.js";
+import {
+  collectMessages,
+  collectRuleMessages,
+  makeESLint,
+} from "./helpers/lint-fixture.js";
 
 const created: string[] = [];
 
@@ -156,6 +160,28 @@ describe("graph invalidation within one process", () => {
     expect(collectMessages(dir, second)).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
     ]);
+  });
+
+  it("reports reachesPastEntry on an already-linted importer after a door file is created", async () => {
+    const dir = project({
+      "src/app.ts": 'import "./Feature/state";\n',
+      "src/Feature/state.ts": "export const s = 1;\n",
+    });
+    const options = { root: "src" };
+    const eslint = makeESLint(dir, options, { rule: "entry" });
+
+    const first = await eslint.lintFiles(["src/app.ts"]);
+    expect(collectRuleMessages(dir, first, "entry")).toEqual([]);
+
+    write(dir, { "src/Feature/index.ts": "export const door = 1;\n" });
+
+    const second = await eslint.lintFiles(["src/app.ts"]);
+    expect(
+      collectRuleMessages(dir, second, "entry").map(({ file, messageId }) => ({
+        file,
+        messageId,
+      })),
+    ).toEqual([{ file: "src/app.ts", messageId: "reachesPastEntry" }]);
   });
 
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {
