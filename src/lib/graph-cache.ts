@@ -161,28 +161,30 @@ function isFresh(
   ignoreGlobs: string[],
 ): boolean {
   const { snapshot, pass } = entry;
-  if (
-    isSameVisit(pass, currentFile, visitToken) &&
-    Date.now() - pass.validatedAt < REVALIDATE_AFTER_MS
-  ) {
+  const now = Date.now();
+  const sameVisit = isSameVisit(pass, currentFile, visitToken);
+  if (sameVisit && now - pass.validatedAt < REVALIDATE_AFTER_MS) {
     return true;
   }
   if (tsconfigNeedsRebuild(snapshot, rootDir)) {
     return false;
   }
 
-  if (pass.visited.has(currentFile) && !isSameVisit(pass, currentFile, visitToken)) {
+  if (
+    (pass.visited.has(currentFile) && !sameVisit) ||
+    (!sameVisit && now - pass.validatedAt >= REVALIDATE_AFTER_MS)
+  ) {
     pass.visited.clear();
     if (trackedFilesChanged(snapshot)) {
       return false;
     }
-  } else if (isSameVisit(pass, currentFile, visitToken)) {
+  } else if (sameVisit) {
     if (trackedFilesChanged(snapshot)) {
       return false;
     }
   }
 
-  pass.validatedAt = Date.now();
+  pass.validatedAt = now;
   pass.visited.add(currentFile);
 
   if (snapshot.stamps.has(currentFile)) {

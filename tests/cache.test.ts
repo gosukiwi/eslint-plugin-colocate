@@ -132,6 +132,29 @@ describe("graph invalidation within one process", () => {
     }
   }
 
+  it("revalidates a different file after a 100 ms gap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T00:00:00Z"));
+    try {
+      const dir = project({
+        "src/a.ts": "export const a = 1;\n",
+        "src/b.ts": "export const b = 1;\n",
+      });
+      const root = path.join(dir, "src");
+      const aPath = path.join(dir, "src/a.ts");
+      const bPath = path.join(dir, "src/b.ts");
+
+      const first = getGraph(root, [], aPath, {});
+      fs.writeFileSync(bPath, 'import "./a";\nexport const b = 1;\n');
+      vi.advanceTimersByTime(REVALIDATE_AFTER_MS + 50);
+      const second = getGraph(root, [], bPath, {});
+      expect(second).not.toBe(first);
+      expect(second.importers.get(aPath)).toEqual([bPath]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not re-stat tracked files every 100 ms during one pass", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-29T00:00:00Z"));
