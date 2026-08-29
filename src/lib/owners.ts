@@ -24,16 +24,26 @@ export interface ReExports {
   total: number;
 }
 
+const reExportsByGraph = derivedFromGraph(() => new Map<string, ReExports>());
+
 export function collectReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
 ): ReExports {
+  const perGraph = reExportsByGraph(graph);
+  const cached = perGraph.get(indexFile);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
   const realIndex = safeRealpath(indexFile);
   if (content === undefined || realDir === undefined) {
-    return { local: [], total: 0 };
+    const empty = { local: [], total: 0 };
+    perGraph.set(indexFile, empty);
+    return empty;
   }
   const sourceFile = parseSourceFile(indexFile, content);
   const settings = getGraphResolutionSettings(graph);
@@ -63,7 +73,9 @@ export function collectReExports(
   };
 
   visit(sourceFile);
-  return { local: [...local], total: modules.size };
+  const result = { local: [...local], total: modules.size };
+  perGraph.set(indexFile, result);
+  return result;
 }
 
 function isNamespaceBarrel(filePath: string, graph: Graph): boolean {
