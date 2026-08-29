@@ -155,6 +155,42 @@ describe("graph invalidation within one process", () => {
     }
   });
 
+  it("does not treat build duration as an idle gap before the next file", () => {
+    let current = 1_000;
+    let jumped = false;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      const value = current;
+      if (!jumped) {
+        jumped = true;
+        current += REVALIDATE_AFTER_MS + 50;
+      }
+      return value;
+    });
+    let statSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      const dir = project({
+        "src/a.ts": "export const a = 1;\n",
+        "src/b.ts": "export const b = 1;\n",
+      });
+      const root = path.join(dir, "src");
+      const aPath = path.join(dir, "src/a.ts");
+      const bPath = path.join(dir, "src/b.ts");
+
+      getGraph(root, [], aPath, {});
+      statSpy = vi.spyOn(fs, "statSync");
+      getGraph(root, [], bPath, {});
+
+      const tracked = new Set([aPath, bPath]);
+      const trackedStats = statSpy.mock.calls.filter(
+        (call) => typeof call[0] === "string" && tracked.has(call[0]),
+      ).length;
+      expect(trackedStats).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+      statSpy?.mockRestore();
+    }
+  });
+
   it("does not re-stat tracked files every 100 ms during one pass", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-29T00:00:00Z"));

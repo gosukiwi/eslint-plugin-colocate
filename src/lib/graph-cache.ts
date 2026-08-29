@@ -179,7 +179,7 @@ function isFresh(
     return false;
   }
 
-  pass.lastVisitAt = now;
+  pass.lastVisitAt = Date.now();
   pass.visited.add(currentFile);
 
   if (snapshot.stamps.has(currentFile)) {
@@ -233,20 +233,21 @@ export function getGraph(
     ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
   }
 
+  const stampedAt = Date.now();
   const entry: CacheEntry = {
     snapshot: {
       graph,
       stamps,
       configs: stampConfigs(configPaths),
       builtAt,
-      stampedAt: Date.now(),
+      stampedAt,
       coarseTimestamps: hasCoarseTimestamps(stamps),
     },
     pass: {
       visited: new Set([currentFile]),
       lastFile: undefined,
       lastToken: undefined,
-      lastVisitAt: builtAt,
+      lastVisitAt: stampedAt,
     },
   };
   cache = { key, entry };
