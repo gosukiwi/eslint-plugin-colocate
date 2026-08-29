@@ -280,8 +280,6 @@ describe("caching with a symlinked root", () => {
     const current = path.join(dir, "src/a.ts");
     const other = path.join(dir, "src/b.ts");
 
-    // Pinned to an exact whole-second timestamp both times, so mtime is
-    // genuinely unchanged and only the size differs.
     const pinned = 1_000_000;
     fs.utimesSync(other, pinned, pinned);
     const first = getGraph(root, [], current);
@@ -306,7 +304,6 @@ describe("caching with a symlinked root", () => {
     const first = getGraph(root, [], edited);
     expect(first.importers.get(path.join(dir, "src/x.ts"))).toEqual([edited]);
 
-    // Same byte length, same mtime: only ctime moves, and userland cannot set it.
     fs.writeFileSync(edited, 'import "./y";\n');
     fs.utimesSync(edited, pinned, pinned);
 

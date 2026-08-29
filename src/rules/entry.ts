@@ -7,17 +7,6 @@ import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
 import { resolveSubject, type Subject } from "../lib/subject.js";
 
-/**
- * The specifier this node imports through, or undefined when it is not
- * statically known.
- *
- * A no-substitution template literal is every bit as static as a quoted string -
- * import(`./x`) loads exactly what import("./x") loads - so it is accepted here.
- * Left out, backticks were a one-character way to launder every crossing in a
- * file past a rule whose whole purpose is a ratchet. One with substitutions is
- * not statically known and stays out, as does anything else non-literal
- * (concatenation, `as string`, identifiers).
- */
 function staticSpecifier(source: ESTree.Node): string | undefined {
   if (source.type === "Literal") {
     return typeof source.value === "string" ? source.value : undefined;
@@ -36,23 +25,6 @@ interface Crossing extends CrossedGate {
   target: string;
 }
 
-/**
- * The gate this specifier reaches past, or undefined when the import is legal.
- *
- * Both the target and the importer go through `canonicalGraphPath`, because
- * fs.realpathSync does not fold case. On the importer side a lower-cased linted
- * path left `isInsideDir` comparing against the gate's real key: it missed, and
- * the file was told to reach into the very directory it lives in - a report whose
- * only fix is to import its own door, i.e. a cycle. On the target side a resolved
- * path carries the specifier's casing, so "./Feature/FEATURE" misses `isEntryFile`
- * and reports a door the author already used, while "./feature/helper" misses the
- * gate key and reports nothing at all.
- *
- * `subject.covers` is also what keeps declaration files out: the walk skips them
- * and they can never be gates, but `resolveSpecifier`'s own probe still finds
- * `types.d.ts` for a "./types.d" specifier - which reported a crossing and named
- * a door that will never re-export the type.
- */
 function crossedGate(
   specifier: string,
   subject: Subject,
@@ -79,20 +51,6 @@ function crossedGate(
   return crossed === undefined ? undefined : { ...crossed, target };
 }
 
-// Neither of these is an ESTree node, so neither is in the parser's published
-// types. Extra visitor keys go through RuleListener's index signature, whose
-// node-shaped member is `(node: Node) => void`, so the parameter must accept
-// every ESTree node: required fields on a TS-only shape fail that (ESLint 10
-// used to type the extra-key parameter as `never`, which hid the constraint).
-// Optional fields on the shape actually read beat `unknown` plus a cast
-// inside the visitor, which hides the shape in the body.
-//
-// TSImportType carries the specifier in two places because the property moved:
-// `source` exists only from @typescript-eslint/parser 8.48, and before that the
-// specifier sits on `argument`, a TSLiteralType wrapping the same Literal. This
-// plugin pins no parser version (eslint is its only peer dependency), so reading
-// `source` alone left the visitor silently inert - check would just receive
-// undefined and return - on every 8.x below 8.48 that a user is free to install.
 interface TypeImportNode {
   source?: ESTree.Node;
   argument?: { literal?: ESTree.Node };
@@ -155,23 +113,9 @@ const rule: Rule.RuleModule = {
 
     return {
       ImportDeclaration: (node) => check(node.source),
-      // No barrel exemption here, unlike ownership's namespace-barrel handling:
-      // that exemption is about where a file belongs, not about whether reaching
-      // through it is legal. A barrel that re-exports a private file under a
-      // public name launders the violation - every downstream consumer of the
-      // barrel then looks innocent - so `export ... from` is checked exactly like
-      // an import. (ownership's predicate is sibling-scoped, so it would not even
-      // recognise a cross-directory barrel like this one.)
       ExportNamedDeclaration: (node) => check(node.source),
       ExportAllDeclaration: (node) => check(node.source),
       ImportExpression: (node) => check(node.source),
-      // `import("./x").T` and `typeof import("./x")` are TSImportType, not
-      // ImportExpression. Without this visitor the rule's answer depended on
-      // which of two equivalent type-import spellings the author picked:
-      // `import type { T } from "./x"` was gated and the inline form - what
-      // generated code and files avoiding top-level imports emit - was not,
-      // contradicting the "type-only imports treated like value imports"
-      // invariant.
       TSImportType: (node: TypeImportNode) =>
         check(node.source ?? node.argument?.literal),
       TSImportEqualsDeclaration: (node: ImportEqualsNode) => {
@@ -183,9 +127,6 @@ const rule: Rule.RuleModule = {
         if (
           node.callee.type !== "Identifier" ||
           node.callee.name !== "require" ||
-          // parse.ts takes arguments[0] at any arity, so require("./x", opts) is
-          // still an edge there; narrowed to exactly one argument here
-          // deliberately, since a real CJS require never takes a second one.
           node.arguments.length !== 1 ||
           requireIsShadowed(context.sourceCode, node)
         ) {

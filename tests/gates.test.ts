@@ -23,8 +23,6 @@ describe("isEntryFile", () => {
     expect(isEntryFile(at("Feature", "helper.ts"))).toBe(false);
   });
 
-  // The ownership model also requires an outside importer for an index; access
-  // does not, or a freshly added door would gate nothing until someone used it.
   it("does not care who imports the entry", () => {
     expect(isEntryFile(at("Untouched", "index.ts"))).toBe(true);
   });
@@ -51,17 +49,11 @@ describe("getGates", () => {
     expect(getGates(graph)).toBe(getGates(graph));
   });
 
-  // graphOf sorts, so a directory-named file always precedes "index" - this
-  // exercises the reverse, where index sorts first, to prove index wins either
-  // way rather than only when it happens to come last.
   it("prefers index over a directory-named sibling even when index sorts first", () => {
     const graph = graphOf(at("zed", "index.ts"), at("zed", "zed.ts"));
     expect(getGates(graph).get(at("zed"))).toBe(at("zed", "index.ts"));
   });
 
-  // Two index spellings mid-migration: both are legal targets, so this pins
-  // the message-wording choice (first in sorted order) rather than asserting
-  // it is somehow the "correct" one.
   it("picks the first index spelling in sorted order when both exist", () => {
     const graph = graphOf(at("Feature", "index.ts"), at("Feature", "index.tsx"));
     expect(getGates(graph).get(at("Feature"))).toBe(at("Feature", "index.ts"));
@@ -89,7 +81,6 @@ describe("findCrossedGate", () => {
     });
   });
 
-  // Nested doors count: landing on any entry is legal, even a child's.
   it("allows an entry file as a target", () => {
     expect(
       findCrossedGate(at("Outer", "Inner", "Inner.ts"), at("app.ts"), graph, root),
@@ -127,10 +118,6 @@ describe("findCrossedGate", () => {
     ).toBeUndefined();
   });
 
-  // A gate directory that already ends in the separator is the filesystem root,
-  // where appending another one builds "//" and matches nothing - so an importer
-  // plainly inside the gate looked outside it. Reachable because resolveRootDir
-  // returns an absolute root verbatim, so root: "/" survives to here.
   it("treats an importer inside a root-level gate as inside it", () => {
     const fsRoot = path.sep;
     const atRoot = (name: string): string => path.join(fsRoot, name);
@@ -140,10 +127,6 @@ describe("findCrossedGate", () => {
     ).toBeUndefined();
   });
 
-  // Featurex is not inside Feature, and the trailing separator in isInsideDir's
-  // comparison is the only thing keeping them apart: without it a prefix-sharing
-  // sibling would look like it lives inside the gate and this report would be
-  // silently dropped.
   it("does not treat a name-prefix sibling as inside the gate", () => {
     const siblings = graphOf(
       at("Feature", "Feature.ts"),

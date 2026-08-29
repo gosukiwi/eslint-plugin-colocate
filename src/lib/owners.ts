@@ -20,9 +20,7 @@ export interface OwnershipContext {
 }
 
 export interface ReExports {
-  /** Sibling modules in the same directory, one entry per module. */
   local: string[];
-  /** Every re-exported module, including modules from elsewhere. */
   total: number;
 }
 
@@ -38,23 +36,8 @@ export function collectReExports(
     return { local: [], total: 0 };
   }
   const sourceFile = parseSourceFile(indexFile, content);
-  // Resolving without these silently drops every aliased re-export: the
-  // fallback inside resolveSpecifier carries no project `paths` and no
-  // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
-  // reclassified the barrel - and with it every finding downstream of
-  // getColocationConsumers.
   const settings = getGraphResolutionSettings(graph);
-  // Keyed by module, not by declaration: the idiomatic value + type split
-  // ("export { x } from './X'; export type { T } from './X';") re-exports one
-  // sibling and must not look like a two-module namespace barrel.
   const local = new Set<string>();
-  // Keyed by resolved module where there is one, and by specifier text only
-  // where there is not, so a re-export that does not resolve (a bare package, a
-  // types-only module) still marks this index as an aggregator while two
-  // spellings of one module count once. Keying on the text alone made "./Bar"
-  // plus "./Bar.js" - or, on a case-insensitive disk, "./Bar" plus "./bar" - an
-  // aggregator, which suppressed mismatchedEntry just as thoroughly as the
-  // double-counted sibling that came with it.
   const modules = new Set<string>();
 
   const visit = (node: ts.Node): void => {
@@ -65,23 +48,12 @@ export function collectReExports(
     ) {
       const specifier = node.moduleSpecifier.text;
       const resolved = resolveSpecifier(specifier, dir, settings);
-      // resolveSpecifier builds its answer from the specifier's own text and
-      // realpath folds neither case nor Unicode normalization, so a target that
-      // resolved perfectly well can still be spelled differently from the graph
-      // key for the same file. Only the target needs recovering: realDir and
-      // realIndex come from a path the walk itself recorded.
       const target =
         resolved === undefined
           ? undefined
           : canonicalGraphPath(graph, resolved);
-      // An index re-exporting itself ("export * from './index'") names no
-      // sibling at all.
       if (target === undefined || target !== realIndex) {
         modules.add(target ?? specifier);
-        // Asked of the resolved file rather than of the specifier's spelling:
-        // a relative-specifier gate here said the same thing for "./Bar" and
-        // the wrong thing for an aliased sibling, which stayed uncounted and
-        // so unbarrelled.
         if (target !== undefined && path.dirname(target) === realDir) {
           local.add(target);
         }
@@ -115,10 +87,6 @@ function isOwnerEntryFile(file: string, dir: string, graph: Graph): boolean {
   if (base !== "index") {
     return false;
   }
-  // An index makes its directory a module only when the directory is imported
-  // through it. A barrel over loose helpers is not a module boundary: counting
-  // it as one made a shared helper directory an "owner", which both flagged the
-  // files inside it and silenced a standalone owner's private helper.
   return (graph.importers.get(file) ?? []).some(
     (importer) => path.dirname(importer) !== dir,
   );
@@ -169,7 +137,6 @@ function buildImports(graph: Graph): Map<string, string[]> {
   return imports;
 }
 
-// Tarjan, iterative so a deep import chain cannot blow the stack.
 function stronglyConnectedIds(
   nodes: readonly string[],
   edgesOf: (node: string) => string[],
@@ -254,11 +221,6 @@ function getRoots(graph: Graph): Set<string> {
     graph.files,
     (file) => imports.get(file) ?? [],
   );
-  // Entry points are whole components, not individual files. Inside a cycle
-  // nothing is importer-free, so asking for zero importers leaves a cyclic
-  // entry with no roots at all and strips the shell exemption from the whole
-  // project; asking each file individually would promote the inner half of a
-  // cycle that something outside imports.
   const importedFromOutside = new Set<number>();
   for (const file of graph.files) {
     const component = componentIds.get(file);
@@ -280,11 +242,6 @@ function getRoots(graph: Graph): Set<string> {
   return roots;
 }
 
-// Entry points plus what they import directly. Deliberately not configurable and
-// deliberately not transitive: a longer bootstrap chain is expressed by declaring
-// the directories it reaches as layers, which states something true about those
-// modules. Exempting the shell's imports outright would also hide a shell that
-// reaches past a feature's entry into its internals - a real finding.
 export const getShells = derivedFromGraph((graph) => {
   const roots = getRoots(graph);
   const shells = new Set(roots);
@@ -329,9 +286,6 @@ function collectLayerDirs(
     }
 
     const fullPath = path.join(dir, entry.name);
-    // Matched against both spellings: `ignore` globs are relative to `root`
-    // while these were relative to the working directory, so with root: "src"
-    // the natural glob silently matched nothing.
     const candidates = [
       path.relative(cwd, fullPath).split(path.sep).join("/"),
       path.relative(rootDir, fullPath).split(path.sep).join("/"),
@@ -363,15 +317,6 @@ export function collectLayerDirectories(
   return dirs;
 }
 
-// Memoised against the graph rather than for the life of the process: a layer
-// directory created mid-session used to stay invisible until ESLint restarted,
-// which meant a permanent false privateOutsideOwner on every module inside it.
-// A new directory rebuilds the graph, which drops this entry with it.
-//
-// Two-level, unlike every other index here: the graph does not determine the
-// answer on its own, so the inner map keys the parts that vary per call. Passing
-// them to derivedFromGraph as extra arguments would serve one graph's first
-// answer to every later cwd and glob set.
 const layerDirsByGraph = derivedFromGraph(() => new Map<string, string[]>());
 
 export function resolveLayerDirectories(
@@ -416,8 +361,6 @@ export function isLayerPublicModule(
 
   const folderName = path.basename(parent);
   const fileBase = path.basename(filePath, path.extname(filePath));
-  // "index" is an entry everywhere else in the plugin, so a layer folder using
-  // one was told to move somewhere it cannot go.
   return fileBase === folderName || fileBase === "index";
 }
 
@@ -538,10 +481,6 @@ export function getSharedColocationIssue(
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
 
-  // Only a folder owner has a folder to be inside of; a standalone owner's parent
-  // directory belongs to nobody. Every folder owner above the subject counts, not
-  // just the innermost one, so a folder entry buried in an unrelated tree is
-  // still caught by the tree it is buried in.
   const consumerFolderDirs = [...owners.values()]
     .filter((owner) => owner.kind === "folder")
     .map((owner) => owner.path);
@@ -554,14 +493,9 @@ export function getSharedColocationIssue(
     if (!isInsideDir(filePath, dir)) {
       return false;
     }
-    // A folder at or above the common ancestor holds every consumer, so being
-    // inside it is not "tucked inside one owner".
     if (!isInsideDir(dir, lca)) {
       return false;
     }
-    // A folder's own entry is never misplaced within its own folder - there is
-    // nowhere else for it to go. If the folder itself sits in the wrong place,
-    // the folders above it say so, and they are still in this list.
     return !isOwnerEntryFile(filePath, dir, ctx.graph);
   });
 

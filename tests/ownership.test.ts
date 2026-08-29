@@ -263,10 +263,6 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
-  // The shell reaching past a feature's entry into its internals is a real
-  // finding, not noise: boot.ts is shared by App and Cart while living inside
-  // Cart. Declaring the shell exempt would hide it, which is why there is no
-  // option to do so.
   it("reports a module shared between the app shell and a feature's own tree", async () => {
     const messages = await lintFixture("shell-reaches-internals", {
       root: "src",
@@ -420,11 +416,6 @@ describe("ownership rule", () => {
     ]);
   });
 
-  // The platform-independent half of the mixed-casing test below: the
-  // aggregated count keys on the resolved module, so two spellings of one
-  // module are one module. Keeping this case-free matters because the two
-  // skipIf tests that follow are the only other cover for that keying, and they
-  // do not run on a case-sensitive filesystem.
   it("counts two spellings of one re-exported module as one module", async () => {
     const messages = await lintFixture("extension-split-barrel");
     expect(sortMessages(messages)).toEqual([
@@ -526,10 +517,6 @@ describe("ownership rule", () => {
     },
   );
 
-  // A link out of the root is not followed: such files cannot be reported (they
-  // are outside root) but would still act as owners, which produced phantom
-  // second owners and unactionable reports. The consumer inside vendor/ is
-  // therefore invisible, and helper.ts is judged on its in-root consumer alone.
   it("does not count consumers behind a symlink out of the root", async () => {
     const messages = await lintFixture("symlinked-module", { root: "src" });
     expect(sortMessages(messages)).toEqual([
@@ -662,13 +649,6 @@ describe("ownership rule", () => {
     ]);
   });
 
-  // The one test that pins report ORDER, and the only reason the documented
-  // order is not free to drift. Every other assertion in this file sorts before
-  // comparing, and until this fixture existed no fixture produced two findings
-  // on a single file at all - so swapping the pushes in `ownershipFindings` left
-  // the whole suite green, typecheck clean, and `check:placement` reporting
-  // unsatisfiable=0, because that script only prints its per-placement matrix
-  // when a configuration has no clean placement. Asserted unsorted, on purpose.
   it("emits both findings for one file in the documented order", async () => {
     const messages = await lintFixtureRule(
       "two-findings-one-file",
@@ -678,11 +658,7 @@ describe("ownership rule", () => {
     expect(
       messages.map(({ file, messageId }) => ({ file, messageId })),
     ).toEqual([
-      // singletonFolder first: Widget/ holds one source file named after it and
-      // has no companion stylesheet.
       { file: "src/shared/Widget/Widget.ts", messageId: "singletonFolder" },
-      // then privateOutsideOwner: its only consumer is pages/Home, and it sits
-      // outside that folder. Both are real, and each names a different edit.
       { file: "src/shared/Widget/Widget.ts", messageId: "privateOutsideOwner" },
     ]);
   });

@@ -191,10 +191,6 @@ describe("getGraph", () => {
     expect(graph.files).toEqual([aPath, bPath]);
   });
 
-  // The entry rule leans on a bare directory specifier resolving through to
-  // its index - if resolution ever stopped doing that, the specifier would
-  // resolve to undefined and every rule built on it would silently stop
-  // seeing the import, not report it wrong.
   it("resolves a bare directory specifier to its index file", () => {
     const base = fs.realpathSync(tempDir("colocate-dir-index-"));
     const srcDir = path.join(base, "src");
@@ -211,11 +207,6 @@ describe("canonicalGraphPath", () => {
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
     "recovers the graph's own casing for a path resolved through wrong-case specifier text",
     () => {
-      // Reproduces the exact defect this exists to close: fs.realpathSync (what
-      // safeRealpath/resolveSpecifier use) does not fold case on macOS - only
-      // its .native variant does - so resolving "./FEATURE" against a file
-      // actually named Feature.ts hands back .../FEATURE/FEATURE.ts, not the
-      // path the graph itself uses as a gate/owner key.
       const base = fs.realpathSync(tempDir("colocate-canonical-"));
       const srcDir = path.join(base, "src");
       const featureDir = path.join(srcDir, "Feature");
@@ -232,8 +223,6 @@ describe("canonicalGraphPath", () => {
       const graph = getGraph(srcDir, [], entryPath);
       const settings = getGraphResolutionSettings(graph);
 
-      // The false positive: resolving the wrong-case specifier that actually
-      // lands on the door.
       const wrongCaseEntry = resolveSpecifier(
         "./Feature/FEATURE",
         srcDir,
@@ -245,9 +234,6 @@ describe("canonicalGraphPath", () => {
         entryPath,
       );
 
-      // The false negative: resolving a wrong-case directory segment on a
-      // genuine crossing must still land on the graph's real helper path, or
-      // a gate lookup keyed on its directory silently misses.
       const wrongCaseHelper = resolveSpecifier(
         "./feature/helper",
         srcDir,
@@ -281,21 +267,9 @@ describe("canonicalGraphPath", () => {
     );
   });
 
-  // Hand-built rather than written to disk on purpose: the two files differ only
-  // by case, which a case-insensitive volume cannot hold at once. The graph can
-  // still contain both, because ts.sys.useCaseSensitiveFileNames is probed where
-  // TypeScript itself is installed, not where the project lives - a
-  // case-sensitive mount under a case-insensitive host, or Windows per-directory
-  // case sensitivity, makes this the real shape.
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
     "prefers an exact graph member over the lowercase fold",
     () => {
-      // Foo/index.ts is the door; Foo/Index.ts is an ordinary internal file,
-      // since "Index" is neither "index" nor "Foo". They share one lowercase
-      // key, and the fold keeps whichever came last - so without an exact-match
-      // guard one silently becomes the other: the internal file folds onto the
-      // door and its crossing vanishes, or the door folds onto the internal file
-      // and gets reported as reaching past itself.
       const graph = {
         files: ["/root/Foo/Index.ts", "/root/Foo/index.ts"],
         importers: new Map(),
@@ -306,26 +280,18 @@ describe("canonicalGraphPath", () => {
       expect(canonicalGraphPath(graph, "/root/Foo/index.ts")).toBe(
         "/root/Foo/index.ts",
       );
-      // The recovery path itself must still work for a non-member.
       expect(canonicalGraphPath(graph, "/root/foo/INDEX.ts")).toBe(
         "/root/Foo/index.ts",
       );
     },
   );
 
-  // Runs on every platform, unlike the case tests above: normalization is folded
-  // regardless of whether the filesystem ignores case, because `readdir` reports
-  // whatever form the filesystem stores while a specifier carries whatever form
-  // the author's editor wrote, and neither realpath nor the resolver converts
-  // between them. Both directions matter - a project can be checked out either
-  // way - so both are asserted.
   it("recovers the graph's own spelling across Unicode normalization forms", () => {
     const nfc = "Café"; // é as a single code point
     const nfd = "Café"; // e followed by a combining acute
     expect(nfc).not.toBe(nfd);
     expect(nfc.normalize("NFC")).toBe(nfd.normalize("NFC"));
 
-    // Graph stored NFC, specifier resolved NFD.
     const storedNfc = {
       files: [`/root/${nfc}/inner.ts`],
       importers: new Map(),
@@ -334,7 +300,6 @@ describe("canonicalGraphPath", () => {
       `/root/${nfc}/inner.ts`,
     );
 
-    // Graph stored NFD, specifier resolved NFC.
     const storedNfd = {
       files: [`/root/${nfd}/inner.ts`],
       importers: new Map(),
@@ -343,8 +308,6 @@ describe("canonicalGraphPath", () => {
       `/root/${nfd}/inner.ts`,
     );
 
-    // An exact member still wins, so neither spelling is rewritten when the
-    // graph already holds it verbatim.
     expect(canonicalGraphPath(storedNfc, `/root/${nfc}/inner.ts`)).toBe(
       `/root/${nfc}/inner.ts`,
     );
@@ -352,7 +315,6 @@ describe("canonicalGraphPath", () => {
       `/root/${nfd}/inner.ts`,
     );
 
-    // Still unchanged for a path the graph does not hold in any form.
     expect(canonicalGraphPath(storedNfc, "/root/Other/inner.ts")).toBe(
       "/root/Other/inner.ts",
     );
@@ -384,8 +346,6 @@ describe("getGraphResolutionSettings", () => {
     expect(resolveSpecifier("@/b", srcDir, settings)).toBe(
       path.join(base, "src", "b.ts"),
     );
-    // Pinned on purpose: this is the silent-degradation mode the settings
-    // exist to avoid. Without them, an aliased import resolves to nothing.
     expect(resolveSpecifier("@/b", srcDir)).toBeUndefined();
   });
 

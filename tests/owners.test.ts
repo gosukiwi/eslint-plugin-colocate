@@ -27,11 +27,6 @@ function tempDir(prefix: string): string {
   return dir;
 }
 
-// Whether the filesystem finds an NFD-named file through its NFC spelling.
-// Probed rather than inferred from ts.sys.useCaseSensitiveFileNames: the two are
-// independent axes (a case-sensitive APFS volume still ignores normalization,
-// and ext4 ignores neither), and it is this axis that decides whether the
-// specifier below resolves at all.
 function foldsNormalization(dir: string): boolean {
   const name = "probe-Café.ts";
   fs.writeFileSync(path.join(dir, name.normalize("NFD")), "");
@@ -96,16 +91,6 @@ describe("resolveLayerDirectories", () => {
 });
 
 describe("collectReExports", () => {
-  // The only proof that collectReExports canonicalises its resolved targets
-  // that does not depend on case folding. It matters because the case tests in
-  // ownership.test.ts skip on a case-sensitive volume, and there
-  // canonicalGraphPath folds normalization and nothing else - so without this,
-  // deleting the call outright leaves the whole suite green on Linux.
-  //
-  // Nothing here is hand-built: the file is NFD on disk (so the walk records it
-  // NFD) while the specifier is NFC, which is the real shape - readdir reports
-  // the stored form, an editor writes whatever the author typed, and neither
-  // realpath nor the resolver converts between them.
   it("recovers the graph's spelling of a sibling re-exported in another normalization form", () => {
     const base = fs.realpathSync(tempDir("colocate-reexport-nfd-"));
     if (!foldsNormalization(base)) {
@@ -128,8 +113,6 @@ describe("collectReExports", () => {
     const graph = buildGraph(srcDir, []);
     const { local, total } = collectReExports(indexPath, fooDir, graph);
 
-    // Without the fold this is the NFC path the specifier spelled, which is not
-    // a graph key - graphHasFile rejects it and mismatchedEntry is lost.
     expect(local).toEqual([siblingNfd]);
     expect(graph.files).toContain(local[0]);
     expect(total).toBe(1);

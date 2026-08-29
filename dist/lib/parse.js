@@ -15,19 +15,14 @@ function scriptKindFromFileName(fileName) {
     return ts.ScriptKind.TS;
 }
 export function parseSourceFile(fileName, content) {
-    return ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, 
-    /*setParentNodes*/ false, scriptKindFromFileName(fileName));
+    return ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, false, scriptKindFromFileName(fileName));
 }
 function stringLiteralText(node) {
-    // No-substitution templates are as static as quotes. isStringLiteral
-    // rejects them, so one character dropped the graph edge.
     if (node !== undefined && ts.isStringLiteralLike(node)) {
         return node.text;
     }
     return undefined;
 }
-// The specifier this node imports through, or undefined when it imports
-// nothing. `requireIsCjs` decides only whether a bare `require(...)` counts.
 function importedSpecifier(node, requireIsCjs) {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         return stringLiteralText(node.moduleSpecifier);
@@ -43,8 +38,6 @@ function importedSpecifier(node, requireIsCjs) {
                 node.expression.text === "require"))) {
         return stringLiteralText(node.arguments[0]);
     }
-    // ImportTypeNode is not a CallExpression. Type-position import("./x").T
-    // and typeof import("./x") used to leave the target with no importer.
     if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
         return stringLiteralText(node.argument.literal);
     }
@@ -53,9 +46,6 @@ function importedSpecifier(node, requireIsCjs) {
 export function extractSpecifiers(content, fileName) {
     const sourceFile = parseSourceFile(fileName, content);
     const specifiers = [];
-    // Scope-aware: a `require` bound in an unrelated nested scope used to disable
-    // every require() edge in the file, while a parameter named require must still
-    // shadow it within that function.
     const visit = (node, shadowed) => {
         const requireIsCjs = !(shadowed || scopeBindsRequire(node));
         const specifier = importedSpecifier(node, requireIsCjs);

@@ -2,9 +2,6 @@ import path from "node:path";
 import ts from "typescript";
 import { safeRealpath, safeStat } from "./fs-safe.js";
 import { isSourceFile, SOURCE_EXTS } from "./scope.js";
-// One lenient policy for every specifier, whatever the project configures for
-// tsc: bundler-style resolution accepts extensionless imports and maps
-// "./x.js" onto x.ts, which is how these projects are actually built.
 const RESOLUTION_OVERRIDES = {
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowJs: true,
@@ -17,8 +14,6 @@ function loadCompilerOptions(rootDir) {
     if (configPath === undefined) {
         return { options: {}, configPaths: [] };
     }
-    // getParsedCommandLineOfConfigFile (rather than readConfigFile) is what
-    // follows "extends", so paths declared in a base config are honoured.
     const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, {
         ...ts.sys,
         onUnRecoverableConfigFileDiagnostic: () => { },
@@ -79,13 +74,6 @@ function probeResolvedPath(base) {
     }
     return undefined;
 }
-// The compiler will not try .cts/.cjs for an extensionless specifier, and for a
-// non-relative one there is no path left to probe once it gives up - so the
-// mapping is expanded here, longest prefix first, exactly as tsc orders it.
-// tsc picks exactly one pattern - an exact key first, otherwise the longest
-// matching prefix - and if that pattern's targets do not exist the specifier is
-// simply unresolved. Trying every matching pattern invented edges the compiler
-// refuses.
 function bestPathPattern(specifier, paths) {
     if (Object.prototype.hasOwnProperty.call(paths, specifier)) {
         return specifier;
@@ -130,12 +118,6 @@ function aliasCandidates(specifier, options) {
     const matched = star === -1
         ? ""
         : specifier.slice(star, specifier.length - (pattern.length - star - 1));
-    // tsc reports a diagnostic for a malformed `paths` entry but still hands the
-    // raw value straight back in options.paths, so a one-bracket typo
-    // (`"@/*": "src/*"` instead of `["src/*"]`) or a non-string target arrives
-    // here exactly as written. Taken on trust, that threw a TypeError out of the
-    // rule and killed the entire lint run with no results at all - the one thing
-    // the filesystem handling everywhere else is careful never to do.
     const targets = paths[pattern];
     if (!Array.isArray(targets)) {
         return [];
@@ -166,8 +148,6 @@ export function resolveSpecifier(specifier, fromDir, settings) {
             return resolved;
         }
     }
-    // Extensions the compiler will not resolve on its own (.cts, .cjs) still
-    // resolve here, for relative and aliased specifiers alike.
     if (specifier.startsWith(".")) {
         return probeResolvedPath(path.resolve(fromDir, specifier));
     }
