@@ -15,9 +15,9 @@ export function derivedFromGraph(build) {
     const table = new WeakMap();
     // Keyed on the graph alone, so extra arguments feed the first build only.
     // That is honest for a build input the graph itself determines - a graph
-    // object belongs to exactly one (root, ignore) pair, so its root cannot vary
-    // between calls - and wrong for anything that can genuinely differ per call
-    // (see resolveLayerDirectories, which keys those inside its own value).
+    // object belongs to exactly one (root, ignore) pair - and wrong for anything
+    // that can genuinely differ per call (see resolveLayerDirectories, which keys
+    // those inside its own value).
     const get = (graph, ...args) => {
         let value = table.get(graph);
         if (value === undefined) {

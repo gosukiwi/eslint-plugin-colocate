@@ -1,3 +1,4 @@
+import { type ResolutionSettings } from "./resolve.js";
 /**
  * Readonly because six indexes are derived from a graph and memoised against
  * the graph object for its whole lifetime (see derived.ts): mutating `files` or
@@ -30,8 +31,8 @@ export declare function graphHasFile(graph: Graph, filePath: string): boolean;
  * recorded spelling or they miss real boundaries and invent fake ones.
  */
 export declare function canonicalGraphPath(graph: Graph, filePath: string): string;
-export declare const getGraphResolutionSettings: ((graph: Graph, rootDir: string) => import("./resolve.js").ResolutionSettings) & {
-    prime: (graph: Graph, value: import("./resolve.js").ResolutionSettings) => void;
+export declare const getGraphResolutionSettings: ((graph: Graph) => ResolutionSettings) & {
+    prime: (graph: Graph, value: ResolutionSettings) => void;
 };
 export declare function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph;
 export declare function buildGraphWithConfigs(rootDir: string, ignoreGlobs: string[]): {

@@ -61,7 +61,7 @@ function crossedGate(
   const resolved = resolveSpecifier(
     specifier,
     path.dirname(subject.file),
-    getGraphResolutionSettings(graph, subject.rootDir),
+    getGraphResolutionSettings(graph),
   );
   if (resolved === undefined) {
     return undefined;
@@ -80,9 +80,11 @@ function crossedGate(
 }
 
 // Neither of these is an ESTree node, so neither is in the parser's published
-// types. Annotating the visitor parameter with the shape actually read is what
-// RuleListener's index signature accepts - its own parameter type is `never`, so
-// any annotation is fine contravariantly - and it beats `unknown` plus a cast
+// types. Extra visitor keys go through RuleListener's index signature, whose
+// node-shaped member is `(node: Node) => void`, so the parameter must accept
+// every ESTree node: required fields on a TS-only shape fail that (ESLint 10
+// used to type the extra-key parameter as `never`, which hid the constraint).
+// Optional fields on the shape actually read beat `unknown` plus a cast
 // inside the visitor, which hides the shape in the body.
 //
 // TSImportType carries the specifier in two places because the property moved:
@@ -97,7 +99,7 @@ interface TypeImportNode {
 }
 
 interface ImportEqualsNode {
-  moduleReference: { type: string; expression?: ESTree.Node };
+  moduleReference?: { type: string; expression?: ESTree.Node };
 }
 
 const rule: Rule.RuleModule = {
@@ -173,7 +175,7 @@ const rule: Rule.RuleModule = {
       TSImportType: (node: TypeImportNode) =>
         check(node.source ?? node.argument?.literal),
       TSImportEqualsDeclaration: (node: ImportEqualsNode) => {
-        if (node.moduleReference.type === "TSExternalModuleReference") {
+        if (node.moduleReference?.type === "TSExternalModuleReference") {
           check(node.moduleReference.expression);
         }
       },

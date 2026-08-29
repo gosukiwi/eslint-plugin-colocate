@@ -10,7 +10,7 @@ export interface ReExports {
     /** Every re-exported module, including modules from elsewhere. */
     total: number;
 }
-export declare function collectReExports(indexFile: string, dir: string): ReExports;
+export declare function collectReExports(indexFile: string, dir: string, graph: Graph): ReExports;
 export interface Owner {
     kind: "folder" | "standalone";
     path: string;

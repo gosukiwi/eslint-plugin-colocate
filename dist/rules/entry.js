@@ -45,7 +45,7 @@ function staticSpecifier(source) {
  */
 function crossedGate(specifier, subject) {
     const graph = subject.graph();
-    const resolved = resolveSpecifier(specifier, path.dirname(subject.file), getGraphResolutionSettings(graph, subject.rootDir));
+    const resolved = resolveSpecifier(specifier, path.dirname(subject.file), getGraphResolutionSettings(graph));
     if (resolved === undefined) {
         return undefined;
     }
@@ -125,7 +125,7 @@ const rule = {
             // invariant.
             TSImportType: (node) => check(node.source ?? node.argument?.literal),
             TSImportEqualsDeclaration: (node) => {
-                if (node.moduleReference.type === "TSExternalModuleReference") {
+                if (node.moduleReference?.type === "TSExternalModuleReference") {
                     check(node.moduleReference.expression);
                 }
             },

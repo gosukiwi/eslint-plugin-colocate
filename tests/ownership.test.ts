@@ -192,6 +192,13 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
+  it("does not let a namespace barrel of aliased re-exports own what it re-exports", async () => {
+    const messages = await lintFixture("alias-barrel-consumer", {
+      root: "src",
+    });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
   it("counts an index re-exporting a single sibling as a consumer", async () => {
     const messages = await lintFixture("single-reexport-consumer", {
       root: "src",
@@ -398,6 +405,52 @@ describe("ownership rule", () => {
       { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
     ]);
   });
+
+  it("reports mismatchedEntry when the single re-export is written through a tsconfig alias", async () => {
+    const messages = await lintFixture("alias-mismatch-index");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
+  it("reports mismatchedEntry when an index re-exports itself through an alias beside one sibling", async () => {
+    const messages = await lintFixture("alias-self-reexport-barrel");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
+  // The platform-independent half of the mixed-casing test below: the
+  // aggregated count keys on the resolved module, so two spellings of one
+  // module are one module. Keeping this case-free matters because the two
+  // skipIf tests that follow are the only other cover for that keying, and they
+  // do not run on a case-sensitive filesystem.
+  it("counts two spellings of one re-exported module as one module", async () => {
+    const messages = await lintFixture("extension-split-barrel");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+    ]);
+  });
+
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "reports mismatchedEntry when the single re-export's case does not match the file on disk",
+    async () => {
+      const messages = await lintFixture("wrong-case-reexport");
+      expect(sortMessages(messages)).toEqual([
+        { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+      ]);
+    },
+  );
+
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "counts a value+type split written with mixed casing as one sibling",
+    async () => {
+      const messages = await lintFixture("wrong-case-type-split-barrel");
+      expect(sortMessages(messages)).toEqual([
+        { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
+      ]);
+    },
+  );
 
   it("does not report privateOutsideOwner on a layer public module with one consumer", async () => {
     const messages = await lintFixture("layer-single-consumer", {

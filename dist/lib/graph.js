@@ -75,12 +75,28 @@ export function canonicalGraphPath(graph, filePath) {
 // caller that tolerated `undefined` here would resolve every aliased import
 // to nothing without anything looking broken. The only miss in practice is a
 // graph built from buildGraphWithConfigs' missing-root early return, which
-// has no files to resolve specifiers for anyway, so recomputing here is safe.
+// has no files to resolve specifiers for anyway.
+//
+// Unprimed graphs get the same no-project settings: walking from cwd or `"."`
+// would pick up whatever tsconfig happens to be nearby (including this repo's
+// when tests run here) and silently attach paths a graph that was never built
+// never earned.
 //
 // The settings carry a TypeScript module resolution cache, so keeping them for
 // the graph's lifetime is the point rather than a bonus. When that lifetime ends
 // is entirely up to the graph cache's own revalidation (see graph-cache.ts).
-export const getGraphResolutionSettings = derivedFromGraph((_graph, rootDir) => createResolutionSettings(safeRealpath(rootDir) ?? rootDir));
+function noProjectResolutionSettings() {
+    const resolutionOptions = {
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        allowJs: true,
+    };
+    return {
+        options: resolutionOptions,
+        cache: ts.createModuleResolutionCache("/", (fileName) => fileName, resolutionOptions),
+        configPaths: [],
+    };
+}
+export const getGraphResolutionSettings = derivedFromGraph((_graph) => noProjectResolutionSettings());
 export function buildGraph(rootDir, ignoreGlobs) {
     return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
 }

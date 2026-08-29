@@ -3,7 +3,7 @@ import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeRealpath } from "./fs-safe.js";
 import { extractSpecifiers } from "./parse.js";
-import { createResolutionSettings, resolveSpecifier } from "./resolve.js";
+import { createResolutionSettings, resolveSpecifier, type ResolutionSettings } from "./resolve.js";
 import { collectSourceFiles } from "./walk.js";
 
 /**
@@ -95,14 +95,34 @@ export function canonicalGraphPath(graph: Graph, filePath: string): string {
 // caller that tolerated `undefined` here would resolve every aliased import
 // to nothing without anything looking broken. The only miss in practice is a
 // graph built from buildGraphWithConfigs' missing-root early return, which
-// has no files to resolve specifiers for anyway, so recomputing here is safe.
+// has no files to resolve specifiers for anyway.
+//
+// Unprimed graphs get the same no-project settings: walking from cwd or `"."`
+// would pick up whatever tsconfig happens to be nearby (including this repo's
+// when tests run here) and silently attach paths a graph that was never built
+// never earned.
 //
 // The settings carry a TypeScript module resolution cache, so keeping them for
 // the graph's lifetime is the point rather than a bonus. When that lifetime ends
 // is entirely up to the graph cache's own revalidation (see graph-cache.ts).
-export const getGraphResolutionSettings = derivedFromGraph(
-  (_graph: Graph, rootDir: string) =>
-    createResolutionSettings(safeRealpath(rootDir) ?? rootDir),
+function noProjectResolutionSettings(): ResolutionSettings {
+  const resolutionOptions: ts.CompilerOptions = {
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowJs: true,
+  };
+  return {
+    options: resolutionOptions,
+    cache: ts.createModuleResolutionCache(
+      "/",
+      (fileName) => fileName,
+      resolutionOptions,
+    ),
+    configPaths: [],
+  };
+}
+
+export const getGraphResolutionSettings = derivedFromGraph((_graph: Graph) =>
+  noProjectResolutionSettings(),
 );
 
 export function buildGraph(rootDir: string, ignoreGlobs: string[]): Graph {

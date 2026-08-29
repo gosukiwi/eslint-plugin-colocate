@@ -3,11 +3,12 @@ import { minimatch } from "minimatch";
 import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
+import { canonicalGraphPath, getGraphResolutionSettings, } from "./graph.js";
 import { parseSourceFile } from "./parse.js";
 import { isInsideDir } from "./paths.js";
 import { resolveSpecifier } from "./resolve.js";
 import { SKIP_DIRS } from "./scope.js";
-export function collectReExports(indexFile, dir) {
+export function collectReExports(indexFile, dir, graph) {
     const content = safeReadFile(indexFile);
     const realDir = safeRealpath(dir);
     const realIndex = safeRealpath(indexFile);
@@ -15,45 +16,62 @@ export function collectReExports(indexFile, dir) {
         return { local: [], total: 0 };
     }
     const sourceFile = parseSourceFile(indexFile, content);
+    // Resolving without these silently drops every aliased re-export: the
+    // fallback inside resolveSpecifier carries no project `paths` and no
+    // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
+    // reclassified the barrel - and with it every finding downstream of
+    // getColocationConsumers.
+    const settings = getGraphResolutionSettings(graph);
     // Keyed by module, not by declaration: the idiomatic value + type split
     // ("export { x } from './X'; export type { T } from './X';") re-exports one
     // sibling and must not look like a two-module namespace barrel.
     const local = new Set();
-    // Counted by specifier rather than by resolved module, so a re-export that
-    // does not resolve (a bare package, a types-only module) still marks this
-    // index as an aggregator.
-    const specifiers = new Set();
+    // Keyed by resolved module where there is one, and by specifier text only
+    // where there is not, so a re-export that does not resolve (a bare package, a
+    // types-only module) still marks this index as an aggregator while two
+    // spellings of one module count once. Keying on the text alone made "./Bar"
+    // plus "./Bar.js" - or, on a case-insensitive disk, "./Bar" plus "./bar" - an
+    // aggregator, which suppressed mismatchedEntry just as thoroughly as the
+    // double-counted sibling that came with it.
+    const modules = new Set();
     const visit = (node) => {
         if (ts.isExportDeclaration(node) &&
             node.moduleSpecifier !== undefined &&
             ts.isStringLiteral(node.moduleSpecifier)) {
             const specifier = node.moduleSpecifier.text;
-            const resolved = resolveSpecifier(specifier, dir);
+            const resolved = resolveSpecifier(specifier, dir, settings);
+            // resolveSpecifier builds its answer from the specifier's own text and
+            // realpath folds neither case nor Unicode normalization, so a target that
+            // resolved perfectly well can still be spelled differently from the graph
+            // key for the same file. Only the target needs recovering: realDir and
+            // realIndex come from a path the walk itself recorded.
+            const target = resolved === undefined
+                ? undefined
+                : canonicalGraphPath(graph, resolved);
             // An index re-exporting itself ("export * from './index'") names no
             // sibling at all.
-            if (resolved === undefined || resolved !== realIndex) {
-                specifiers.add(specifier);
-                if (resolved !== undefined &&
-                    specifier.startsWith(".") &&
-                    path.dirname(resolved) === realDir) {
-                    local.add(resolved);
+            if (target === undefined || target !== realIndex) {
+                modules.add(target ?? specifier);
+                // Asked of the resolved file rather than of the specifier's spelling:
+                // a relative-specifier gate here said the same thing for "./Bar" and
+                // the wrong thing for an aliased sibling, which stayed uncounted and
+                // so unbarrelled.
+                if (target !== undefined && path.dirname(target) === realDir) {
+                    local.add(target);
                 }
             }
         }
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return { local: [...local], total: specifiers.size };
+    return { local: [...local], total: modules.size };
 }
-function countLocalReExports(indexFile, dir) {
-    return collectReExports(indexFile, dir).local.length;
-}
-function isNamespaceBarrel(filePath) {
+function isNamespaceBarrel(filePath, graph) {
     const basename = path.basename(filePath, path.extname(filePath));
     if (basename !== "index") {
         return false;
     }
-    return countLocalReExports(filePath, path.dirname(filePath)) >= 2;
+    return (collectReExports(filePath, path.dirname(filePath), graph).local.length >= 2);
 }
 function isOwnerEntryFile(file, dir, graph) {
     if (path.dirname(file) !== dir) {
@@ -216,7 +234,7 @@ export const getShells = derivedFromGraph((graph) => {
 });
 export function getColocationConsumers(filePath, graph, shells) {
     const importers = graph.importers.get(filePath) ?? [];
-    return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer));
+    return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer, graph));
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
