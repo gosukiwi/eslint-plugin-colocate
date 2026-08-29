@@ -33,7 +33,7 @@ interface PassState {
   visited: Set<string>;
   lastFile: string | undefined;
   lastToken: WeakRef<VisitToken> | undefined;
-  validatedAt: number;
+  lastVisitAt: number;
 }
 
 interface CacheEntry {
@@ -163,28 +163,23 @@ function isFresh(
   const { snapshot, pass } = entry;
   const now = Date.now();
   const sameVisit = isSameVisit(pass, currentFile, visitToken);
-  if (sameVisit && now - pass.validatedAt < REVALIDATE_AFTER_MS) {
+  const idle = now - pass.lastVisitAt >= REVALIDATE_AFTER_MS;
+  if (sameVisit && !idle) {
     return true;
   }
   if (tsconfigNeedsRebuild(snapshot, rootDir)) {
     return false;
   }
 
-  if (
-    (pass.visited.has(currentFile) && !sameVisit) ||
-    (!sameVisit && now - pass.validatedAt >= REVALIDATE_AFTER_MS)
-  ) {
+  const newPass = !sameVisit && (pass.visited.has(currentFile) || idle);
+  if (newPass) {
     pass.visited.clear();
-    if (trackedFilesChanged(snapshot)) {
-      return false;
-    }
-  } else if (sameVisit) {
-    if (trackedFilesChanged(snapshot)) {
-      return false;
-    }
+  }
+  if ((newPass || sameVisit) && trackedFilesChanged(snapshot)) {
+    return false;
   }
 
-  pass.validatedAt = now;
+  pass.lastVisitAt = now;
   pass.visited.add(currentFile);
 
   if (snapshot.stamps.has(currentFile)) {
@@ -251,7 +246,7 @@ export function getGraph(
       visited: new Set([currentFile]),
       lastFile: undefined,
       lastToken: undefined,
-      validatedAt: builtAt,
+      lastVisitAt: builtAt,
     },
   };
   cache.clear();
