@@ -1,35 +1,3 @@
-/**
- * Placement satisfiability sweep.
- *
- * Every report either rule emits must be fixable. For `ownership` that means:
- * for a given project there has to be *somewhere* the file can live that the
- * rule accepts. Four separate bugs on this project were reports that no
- * location satisfied, so this generates random layouts, places the subject file
- * at every plausible location, and fails if any configuration has no clean
- * placement at all.
- *
- * `colocate/entry` is swept too, for the same property stated its own way:
- * there has to be a *specifier* the importer can use that the rule accepts.
- * Because landing on any door is legal (see "Nested doors count" in
- * docs/agents/entry.md), rewriting the specifier to the named entry always
- * clears the report - unless the door is unreachable from the importer, which
- * happens exactly when the importer already lives inside the module it is being
- * told to enter. Then the only "fix" is for a file to import its own door, i.e.
- * a cycle, and the report is unsatisfiable. That is not hypothetical: the entry
- * rule shipped with such a bug (a wrong-case importer path defeated the
- * inside-the-gate check) and this script could not see it, because it only ever
- * enabled `ownership`.
- *
- * Not part of `npm test` — it runs a few thousand lints. Run it after touching
- * either model:
- *
- *     npm run check:placement
- *
- * Validated against the commit before the fix in ee22223: 51 of 200
- * configurations were unsatisfiable there, 0 afterwards. The entry sweep was
- * validated the same way, by removing `findCrossedGate`'s inside-the-gate check:
- * 34 of 106 entry reports became unsatisfiable, and 0 with it restored.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { ESLint } from "eslint";
@@ -64,7 +32,6 @@ function spec(fromDir: string, target: string): string {
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
-/** Writes the whole project with the subject placed at `placement`. */
 function emit(
   dir: string,
   owners: string[],
@@ -84,7 +51,6 @@ function emit(
           subject.name,
           subject.kind === "entry" ? `${subject.name}.ts` : "index.ts",
         );
-  // Consumers import the folder when the subject is an index file.
   const target =
     subject.kind === "index"
       ? path.posix.join(placement, subject.name)
@@ -92,7 +58,6 @@ function emit(
 
   files[subjectPath] = "export const subject = 1;\n";
   if (subject.kind !== "plain") {
-    // Keeps the subject's folder from being a singleton wrapper.
     files[path.posix.join(placement, subject.name, "sibling.ts")] =
       "export const s = 1;\n";
   }
@@ -147,11 +112,8 @@ async function reportsFor(
       {
         files: ["**/*.ts"],
         plugins: { p: plugin },
-        // Both rules in one pass: they are independent, and sharing the emitted
-        // tree keeps this sweep the same order of cost it always was.
         rules: {
           "p/ownership": ["error", options],
-          // entry takes no `layers`, so it gets only the options it accepts.
           "p/entry": [
             "error",
             { root: options.root, ...(options.ignore ? { ignore: options.ignore } : {}) },
@@ -181,24 +143,15 @@ async function reportsFor(
   return { ownership, entry };
 }
 
-// "'X' is inside module 'M'; import it through 'E', or move it out of ..."
 const ENTRY_MESSAGE =
   /^'(?<target>[^']+)' is inside module '(?<module>[^']+)'; import it through '(?<entry>[^']+)'/;
 
-/**
- * Why this report cannot be fixed, or undefined when it can be.
- *
- * The suggested edit is "import it through the door". That is available unless
- * the importer is itself inside the module (importing its own door is a cycle)
- * or the importer *is* the door.
- */
 function unsatisfiableEntryReason(report: RuleReport): string | undefined {
   const match = ENTRY_MESSAGE.exec(report.message);
   if (match?.groups === undefined) {
     return `unparseable entry message: ${report.message}`;
   }
   const { module: moduleDir, entry: entryFile } = match.groups;
-  // Reports are relative to `root`; the linted file path is relative to cwd.
   const importer = report.file.replace(/^src\//, "");
   if (importer === entryFile) {
     return `importer IS the named door '${entryFile}'`;
@@ -261,8 +214,6 @@ for (let n = 0; n < CONFIGS; n += 1) {
       clean += 1;
     }
 
-    // Every entry report in the whole tree, not just the subject's: the rule
-    // reports on the importer, so the interesting file is rarely the subject.
     for (const report of entry) {
       entryReports += 1;
       const reason = unsatisfiableEntryReason(report);

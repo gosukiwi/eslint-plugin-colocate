@@ -175,11 +175,6 @@ describe("robustness", () => {
     ]);
   });
 
-  // tsc reports a diagnostic for a malformed `paths` entry but still returns the
-  // raw value, so a one-bracket typo reached aliasCandidates as a string and
-  // threw a TypeError out of the rule - killing the whole lint run rather than
-  // degrading to no findings. Covers both rules and both malformed shapes,
-  // because the throw was in shared resolution code, not in either rule.
   it.each([
     ["a string instead of an array", '{ "@/*": "src/*" }'],
     ["a non-string target", '{ "@/*": [{ "not": "a string" }] }'],
@@ -197,8 +192,6 @@ describe("robustness", () => {
         const results = await makeESLint(dir, { root: "src" }, {
           rule,
         }).lintFiles(["src"]);
-        // Not just "no findings": a thrown rule surfaces as a fatal message,
-        // which collectRuleMessages turns into an error, so this asserts both.
         expect(collectRuleMessages(dir, results, rule)).toEqual([]);
       }
     } finally {

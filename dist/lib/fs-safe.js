@@ -1,7 +1,4 @@
 import fs from "node:fs";
-// The rule runs inside ESLint's process: an uncaught fs error here aborts the
-// user's entire lint run. Every filesystem read goes through these helpers, and
-// a missing or unreadable path always degrades to "skip" rather than throwing.
 export function safeRealpath(filePath) {
     try {
         return fs.realpathSync(filePath);

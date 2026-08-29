@@ -13,8 +13,6 @@ describe("plugin surface", () => {
       fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
     ) as { name: string; version: string };
 
-    // meta.version is hardcoded, so this is the only thing keeping it honest
-    // after a version bump.
     expect(plugin.meta.name).toBe(pkg.name);
     expect(plugin.meta.version).toBe(pkg.version);
   });
@@ -41,8 +39,6 @@ describe("plugin surface", () => {
     ]);
   });
 
-  // Adding a rule to a shipped preset would make every future rule a breaking
-  // change, so the plugin deliberately exports none.
   it("ships no configs", () => {
     expect((plugin as { configs?: unknown }).configs).toBeUndefined();
   });
@@ -59,8 +55,6 @@ describe("stampIsAmbiguous", () => {
     expect(stampIsAmbiguous(4_999_000, builtAt, true)).toBe(false);
   });
 
-  // A clock-skewed future timestamp is stable, so distrusting it would rebuild
-  // the graph on every lint forever.
   it("trusts a stamp from a later second", () => {
     expect(stampIsAmbiguous(5_002_000, builtAt, true)).toBe(false);
   });

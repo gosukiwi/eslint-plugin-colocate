@@ -9,8 +9,6 @@ describe("fixture harness", () => {
     ]);
   });
 
-  // Entry reports are per-import, so several land in one file and assertions
-  // need to tell them apart.
   it("exposes line and message when a rule is named explicitly", async () => {
     const messages = await lintFixtureRule("singleton-flag", "ownership");
     expect(messages).toHaveLength(1);

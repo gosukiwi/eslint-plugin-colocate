@@ -2,8 +2,6 @@ import type { Rule } from "eslint";
 import { ownershipFindings } from "../lib/findings.js";
 import { resolveSubject } from "../lib/subject.js";
 
-// `root` and `ignore` are options here too, but resolveSubject is what reads
-// them - see the schema below, which is still the whole contract.
 interface RuleOptions {
   layers?: string[];
 }
@@ -45,16 +43,11 @@ const rule: Rule.RuleModule = {
 
     return {
       Program(node) {
-        // Resolved here rather than in create() for the same reason it always
-        // was: a configured root that does not exist, or a linted path that is
-        // not on disk (processors, --stdin-filename, a file deleted mid-run),
-        // means "nothing to say" rather than a crash.
         const subject = resolveSubject(context);
         if (subject === undefined) {
           return;
         }
 
-        // Report on the first statement so eslint-disable comments still apply under ESLint 10.
         const reportNode = node.body[0] ?? node;
         for (const messageId of ownershipFindings(
           subject,

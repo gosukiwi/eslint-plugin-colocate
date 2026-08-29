@@ -39,9 +39,6 @@ export function makeESLint(
             ecmaVersion: 2022,
           },
         };
-  // Accepts several rule names so a cache test can enable both rules at once -
-  // that is the configuration that exposed the getGraph double-call bug, and
-  // no fixture-driven assertion needs more than one rule at a time.
   const ruleNames =
     options?.rule === undefined
       ? (["ownership"] as const)
@@ -70,12 +67,6 @@ export function makeESLint(
   });
 }
 
-// The real collection loop lives here so the fatal-parse-error check has one
-// implementation; collectMessages below is a thin projection onto the
-// two-key shape the ownership assertions were already written against.
-// Exported so a temp-directory test for a new rule (the makeESLint +
-// collectMessages idiom in cache.test.ts) doesn't silently get `[]` back
-// from collectMessages's hardcoded "colocate/ownership" filter.
 export function collectRuleMessages(
   cwd: string,
   results: ESLint.LintResult[],
@@ -104,8 +95,6 @@ export function collectRuleMessages(
     }
   }
 
-  // A fixture that stops parsing would otherwise silently satisfy every
-  // "expect no messages" assertion.
   if (fatal.length > 0) {
     throw new Error(`fixture produced parse errors:\n${fatal.join("\n")}`);
   }
@@ -122,10 +111,6 @@ export function collectMessages(
   );
 }
 
-// Ownership assertions compare whole objects with toEqual, so they want the
-// two-key shape below. Reach for lintFixtureRule instead when a fixture
-// packs several findings into one file and the assertion needs line/message
-// to tell them apart.
 export async function lintFixture(
   name: string,
   ruleOptions?: Record<string, unknown>,
@@ -166,16 +151,6 @@ export async function lintEntryFixture(
   return lintFixtureRule(name, "entry", ruleOptions, targets, options);
 }
 
-/**
- * The named keys of each message, for a `toEqual` that pins some fields and
- * ignores the rest.
- *
- * Six copies of `messages.map(({ file, line, messageId }) => ({ file, line,
- * messageId }))` had accumulated in entry.test.ts. Keep choosing the keys per
- * assertion rather than settling on one shape: which fields carry the point
- * differs - `message` is the payload wherever the report names a module and a
- * door, and noise wherever the interesting thing is which line was flagged.
- */
 export function pick<K extends keyof FixtureMessage>(
   messages: FixtureMessage[],
   ...keys: K[]

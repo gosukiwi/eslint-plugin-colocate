@@ -44,7 +44,6 @@ describe("resolveRootDir", () => {
     fs.writeFileSync(path.join(project, "package.json"), "{}");
     fs.mkdirSync(path.join(base, "src"));
 
-    // "src" exists above the project, but the walk must stop at the package.json.
     expect(resolveRootDir("src", deep)).toBe(path.join(deep, "src"));
   });
 });

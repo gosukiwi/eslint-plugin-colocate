@@ -106,24 +106,6 @@ describe("graph invalidation within one process", () => {
     expect(await lint(dir, ["src"], options)).toEqual([]);
   });
 
-  // ownership and entry both call getGraph for the same file within one lint
-  // pass. getGraph's pass-boundary check used to key only on the linted file
-  // path, so this second call looked exactly like a new pass landing on the
-  // same file and re-validated every tracked file by stat'ing it - once per
-  // linted file, per lint pass, an O(files^2) statSync cost that only showed
-  // up with both rules on. Every file has an import statement so entry's lazy
-  // getGraph call (made as soon as there is a specifier to check, whether or
-  // not it resolves) fires for each file - an import-free fixture would
-  // exercise only ownership's Program-level call and miss the bug entirely.
-  // The imported specifier does not resolve to anything in the fixture, so it
-  // creates no graph edge and triggers no ownership finding, keeping this
-  // test focused on getGraph call counting rather than ownership's placement
-  // rules. Asserted as a growth-rate comparison rather than a fixed
-  // threshold: a handful of unrelated extra stats anywhere in the walk would
-  // make a tight fixed bound flaky, but linear-in-files growth (this fix) and
-  // quadratic growth (the regression) are far enough apart that doubling the
-  // file count and checking the call count did not also roughly double keeps
-  // the test meaningful without pinning an exact figure.
   async function countStatsForFileCount(fileCount: number): Promise<number> {
     const files: Record<string, string> = {};
     for (let i = 0; i < fileCount; i += 1) {
@@ -150,27 +132,9 @@ describe("graph invalidation within one process", () => {
     const small = await countStatsForFileCount(20);
     const large = await countStatsForFileCount(40);
 
-    // Linear growth roughly doubles the call count when the file count
-    // doubles; the O(files^2) regression roughly quadruples it. The bound
-    // sits well above the former and well below the latter.
     expect(large).toBeLessThan(small * 2.5);
   });
 
-  // The fix for the above (a visitToken carried on the cache entry) must not
-  // regress the case it looks structurally identical to: a genuinely new pass
-  // that happens to start on the very file the previous pass ended on -
-  // exactly what a watch-mode re-lint of a single open file does. Each
-  // separate lintFiles() call gets its own ESLint SourceCode object even for
-  // an unchanged file, so the token differs across passes and this still
-  // revalidates.
-  //
-  // Both this test and the one above depend on their lintFiles() calls
-  // landing within REVALIDATE_AFTER_MS (100ms) of each other - the case they
-  // exercise (same file, different token) only fails the "same visit" check
-  // on the token; if the elapsed-time bound also tripped, revalidation would
-  // still happen, just for the wrong reason. On a sufficiently slow machine
-  // this test would still pass, but via the timer rather than the token it
-  // is meant to prove, losing its specificity.
   it("still revalidates when a new pass starts on the same single file the previous pass ended on", async () => {
     const dir = project(APP);
     const options = { root: "src" };
@@ -194,15 +158,6 @@ describe("graph invalidation within one process", () => {
     ]);
   });
 
-  // Token identity proves "same SourceCode object", not "same moment". A host
-  // may hold one SourceCode and verify it repeatedly - Linter#verify accepts a
-  // SourceCode instance and hands its identity straight through to
-  // context.sourceCode - and an unbounded short-circuit turned that into a
-  // permanently frozen graph: every later verify matched the token, so neither
-  // the tsconfig check nor the tracked-file sweep ever ran again and the report
-  // could not be cleared by editing any file other than the linted one. Uses
-  // Linter rather than the ESLint class because only Linter lets a caller supply
-  // the SourceCode and thus pin the token across passes.
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {
     const dir = project({
       ...APP,
@@ -229,10 +184,6 @@ describe("graph invalidation within one process", () => {
 
     const retained = linter.getSourceCode();
     write(dir, { "src/pages/MyPage/MyPage.ts": "export const p = 1;\n" });
-    // Past REVALIDATE_AFTER_MS, so a correctly bounded short-circuit must let
-    // the tracked-file sweep run even though file and token both still match.
-    // Sleeps against the real constant rather than a copy of its value, so
-    // raising it cannot turn this into a mystery failure here.
     await new Promise((resolve) =>
       setTimeout(resolve, REVALIDATE_AFTER_MS + 50),
     );

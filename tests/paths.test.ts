@@ -20,15 +20,10 @@ describe("isInsideDir", () => {
     expect(isInsideDir(at("p", "src"), at("p", "src"))).toBe(false);
   });
 
-  // The whole reason this module exists: a sibling sharing a name prefix is not
-  // inside, and only the trailing separator distinguishes them.
   it("rejects a sibling whose name merely starts with the directory's", () => {
     expect(isInsideDir(at("p", "srcx", "a.ts"), at("p", "src"))).toBe(false);
   });
 
-  // A dir already ending in the separator is the filesystem root. Appending
-  // another built "//", which matched nothing, so a file plainly inside looked
-  // outside. Reachable because resolveRootDir returns an absolute root verbatim.
   it("handles a directory that already ends in a separator", () => {
     expect(isInsideDir(at("a.ts"), sep)).toBe(true);
     expect(isInsideDir(at("sub", "a.ts"), sep)).toBe(true);
@@ -48,9 +43,6 @@ describe("isAtOrInsideDir", () => {
     expect(isAtOrInsideDir(at("p", "srcx"), at("p", "src"))).toBe(false);
   });
 
-  // graph.ts's copy had the same separator defect: with root "/", every symlink
-  // whose real path differed was judged outside the root and dropped from the
-  // graph entirely.
   it("treats a path under a separator-terminated root as within it", () => {
     expect(isAtOrInsideDir(at("sub", "a.ts"), sep)).toBe(true);
     expect(isAtOrInsideDir(sep, sep)).toBe(true);

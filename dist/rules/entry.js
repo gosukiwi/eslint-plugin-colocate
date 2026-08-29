@@ -4,17 +4,6 @@ import { canonicalGraphPath, getGraphResolutionSettings } from "../lib/graph.js"
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
 import { resolveSubject } from "../lib/subject.js";
-/**
- * The specifier this node imports through, or undefined when it is not
- * statically known.
- *
- * A no-substitution template literal is every bit as static as a quoted string -
- * import(`./x`) loads exactly what import("./x") loads - so it is accepted here.
- * Left out, backticks were a one-character way to launder every crossing in a
- * file past a rule whose whole purpose is a ratchet. One with substitutions is
- * not statically known and stays out, as does anything else non-literal
- * (concatenation, `as string`, identifiers).
- */
 function staticSpecifier(source) {
     if (source.type === "Literal") {
         return typeof source.value === "string" ? source.value : undefined;
@@ -26,23 +15,6 @@ function staticSpecifier(source) {
     }
     return undefined;
 }
-/**
- * The gate this specifier reaches past, or undefined when the import is legal.
- *
- * Both the target and the importer go through `canonicalGraphPath`, because
- * fs.realpathSync does not fold case. On the importer side a lower-cased linted
- * path left `isInsideDir` comparing against the gate's real key: it missed, and
- * the file was told to reach into the very directory it lives in - a report whose
- * only fix is to import its own door, i.e. a cycle. On the target side a resolved
- * path carries the specifier's casing, so "./Feature/FEATURE" misses `isEntryFile`
- * and reports a door the author already used, while "./feature/helper" misses the
- * gate key and reports nothing at all.
- *
- * `subject.covers` is also what keeps declaration files out: the walk skips them
- * and they can never be gates, but `resolveSpecifier`'s own probe still finds
- * `types.d.ts` for a "./types.d" specifier - which reported a crossing and named
- * a door that will never re-export the type.
- */
 function crossedGate(specifier, subject) {
     const graph = subject.graph();
     const resolved = resolveSpecifier(specifier, path.dirname(subject.file), getGraphResolutionSettings(graph));
@@ -106,23 +78,9 @@ const rule = {
         };
         return {
             ImportDeclaration: (node) => check(node.source),
-            // No barrel exemption here, unlike ownership's namespace-barrel handling:
-            // that exemption is about where a file belongs, not about whether reaching
-            // through it is legal. A barrel that re-exports a private file under a
-            // public name launders the violation - every downstream consumer of the
-            // barrel then looks innocent - so `export ... from` is checked exactly like
-            // an import. (ownership's predicate is sibling-scoped, so it would not even
-            // recognise a cross-directory barrel like this one.)
             ExportNamedDeclaration: (node) => check(node.source),
             ExportAllDeclaration: (node) => check(node.source),
             ImportExpression: (node) => check(node.source),
-            // `import("./x").T` and `typeof import("./x")` are TSImportType, not
-            // ImportExpression. Without this visitor the rule's answer depended on
-            // which of two equivalent type-import spellings the author picked:
-            // `import type { T } from "./x"` was gated and the inline form - what
-            // generated code and files avoiding top-level imports emit - was not,
-            // contradicting the "type-only imports treated like value imports"
-            // invariant.
             TSImportType: (node) => check(node.source ?? node.argument?.literal),
             TSImportEqualsDeclaration: (node) => {
                 if (node.moduleReference?.type === "TSExternalModuleReference") {
@@ -132,9 +90,6 @@ const rule = {
             CallExpression: (node) => {
                 if (node.callee.type !== "Identifier" ||
                     node.callee.name !== "require" ||
-                    // parse.ts takes arguments[0] at any arity, so require("./x", opts) is
-                    // still an edge there; narrowed to exactly one argument here
-                    // deliberately, since a real CJS require never takes a second one.
                     node.arguments.length !== 1 ||
                     requireIsShadowed(context.sourceCode, node)) {
                     return;
