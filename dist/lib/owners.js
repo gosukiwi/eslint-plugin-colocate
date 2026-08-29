@@ -8,7 +8,7 @@ import { parseSourceFile } from "./parse.js";
 import { isInsideDir } from "./paths.js";
 import { resolveSpecifier } from "./resolve.js";
 import { SKIP_DIRS } from "./scope.js";
-export function collectReExports(indexFile, dir, graph, rootDir) {
+export function collectReExports(indexFile, dir, graph) {
     const content = safeReadFile(indexFile);
     const realDir = safeRealpath(dir);
     const realIndex = safeRealpath(indexFile);
@@ -21,7 +21,7 @@ export function collectReExports(indexFile, dir, graph, rootDir) {
     // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
     // reclassified the barrel - and with it every finding downstream of
     // getColocationConsumers.
-    const settings = getGraphResolutionSettings(graph, rootDir);
+    const settings = getGraphResolutionSettings(graph);
     // Keyed by module, not by declaration: the idiomatic value + type split
     // ("export { x } from './X'; export type { T } from './X';") re-exports one
     // sibling and must not look like a two-module namespace barrel.
@@ -66,15 +66,12 @@ export function collectReExports(indexFile, dir, graph, rootDir) {
     visit(sourceFile);
     return { local: [...local], total: modules.size };
 }
-function countLocalReExports(indexFile, dir, graph, rootDir) {
-    return collectReExports(indexFile, dir, graph, rootDir).local.length;
-}
-function isNamespaceBarrel(filePath, graph, rootDir) {
+function isNamespaceBarrel(filePath, graph) {
     const basename = path.basename(filePath, path.extname(filePath));
     if (basename !== "index") {
         return false;
     }
-    return (countLocalReExports(filePath, path.dirname(filePath), graph, rootDir) >= 2);
+    return (collectReExports(filePath, path.dirname(filePath), graph).local.length >= 2);
 }
 function isOwnerEntryFile(file, dir, graph) {
     if (path.dirname(file) !== dir) {
@@ -235,10 +232,9 @@ export const getShells = derivedFromGraph((graph) => {
     }
     return shells;
 });
-export function getColocationConsumers(filePath, ctx, shells) {
-    const importers = ctx.graph.importers.get(filePath) ?? [];
-    return importers.filter((importer) => !shells.has(importer) &&
-        !isNamespaceBarrel(importer, ctx.graph, ctx.rootDir));
+export function getColocationConsumers(filePath, graph, shells) {
+    const importers = graph.importers.get(filePath) ?? [];
+    return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer, graph));
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
@@ -320,11 +316,11 @@ export function shouldSkipColocation(filePath, ctx) {
     if (isLayerPublicModule(filePath, ctx.layerDirs)) {
         return true;
     }
-    return getColocationConsumers(filePath, ctx, shells).length === 0;
+    return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
 }
 function collectConsumerOwners(filePath, ctx) {
     const shells = getShells(ctx.graph);
-    const consumers = getColocationConsumers(filePath, ctx, shells);
+    const consumers = getColocationConsumers(filePath, ctx.graph, shells);
     const owners = new Map();
     for (const consumer of consumers) {
         const owner = getOwner(consumer, ctx.graph, ctx.rootDir);

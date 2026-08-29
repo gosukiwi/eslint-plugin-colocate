@@ -24,13 +24,6 @@ export function derivedFromGraph<T, A extends unknown[] = []>(
   // object belongs to exactly one (root, ignore) pair - and wrong for anything
   // that can genuinely differ per call (see resolveLayerDirectories, which keys
   // those inside its own value).
-  //
-  // Note the root's *spelling* does vary between callers: entry.ts hands
-  // getGraphResolutionSettings `subject.rootDir` while owners.ts hands it
-  // `subject.realRootDir`. That is safe for two reasons, not one - the builder
-  // realpaths its argument before use, and buildGraphWithConfigs primes the
-  // entry on every path that produces a graph with files in it - so do not read
-  // this as licence to pass a per-call value.
   const get = (graph: Graph, ...args: A): T => {
     let value = table.get(graph);
     if (value === undefined) {

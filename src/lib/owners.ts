@@ -30,7 +30,6 @@ export function collectReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
-  rootDir: string,
 ): ReExports {
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
@@ -44,7 +43,7 @@ export function collectReExports(
   // baseUrl, so "@/Foo/Bar" named no sibling and one tsconfig alias
   // reclassified the barrel - and with it every finding downstream of
   // getColocationConsumers.
-  const settings = getGraphResolutionSettings(graph, rootDir);
+  const settings = getGraphResolutionSettings(graph);
   // Keyed by module, not by declaration: the idiomatic value + type split
   // ("export { x } from './X'; export type { T } from './X';") re-exports one
   // sibling and must not look like a two-module namespace barrel.
@@ -95,26 +94,13 @@ export function collectReExports(
   return { local: [...local], total: modules.size };
 }
 
-function countLocalReExports(
-  indexFile: string,
-  dir: string,
-  graph: Graph,
-  rootDir: string,
-): number {
-  return collectReExports(indexFile, dir, graph, rootDir).local.length;
-}
-
-function isNamespaceBarrel(
-  filePath: string,
-  graph: Graph,
-  rootDir: string,
-): boolean {
+function isNamespaceBarrel(filePath: string, graph: Graph): boolean {
   const basename = path.basename(filePath, path.extname(filePath));
   if (basename !== "index") {
     return false;
   }
   return (
-    countLocalReExports(filePath, path.dirname(filePath), graph, rootDir) >= 2
+    collectReExports(filePath, path.dirname(filePath), graph).local.length >= 2
   );
 }
 
@@ -321,14 +307,12 @@ export const getShells = derivedFromGraph((graph) => {
 
 export function getColocationConsumers(
   filePath: string,
-  ctx: OwnershipContext,
+  graph: Graph,
   shells: Set<string>,
 ): string[] {
-  const importers = ctx.graph.importers.get(filePath) ?? [];
+  const importers = graph.importers.get(filePath) ?? [];
   return importers.filter(
-    (importer) =>
-      !shells.has(importer) &&
-      !isNamespaceBarrel(importer, ctx.graph, ctx.rootDir),
+    (importer) => !shells.has(importer) && !isNamespaceBarrel(importer, graph),
   );
 }
 
@@ -448,7 +432,7 @@ export function shouldSkipColocation(
   if (isLayerPublicModule(filePath, ctx.layerDirs)) {
     return true;
   }
-  return getColocationConsumers(filePath, ctx, shells).length === 0;
+  return getColocationConsumers(filePath, ctx.graph, shells).length === 0;
 }
 
 function collectConsumerOwners(
@@ -456,7 +440,7 @@ function collectConsumerOwners(
   ctx: OwnershipContext,
 ): Map<string, Owner> {
   const shells = getShells(ctx.graph);
-  const consumers = getColocationConsumers(filePath, ctx, shells);
+  const consumers = getColocationConsumers(filePath, ctx.graph, shells);
   const owners = new Map<string, Owner>();
   for (const consumer of consumers) {
     const owner = getOwner(consumer, ctx.graph, ctx.rootDir);

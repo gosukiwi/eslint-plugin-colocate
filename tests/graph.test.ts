@@ -9,7 +9,10 @@ import {
   canonicalGraphPath,
   getGraphResolutionSettings,
 } from "../src/lib/graph.js";
-import { resolveSpecifier } from "../src/lib/resolve.js";
+import {
+  createResolutionSettings,
+  resolveSpecifier,
+} from "../src/lib/resolve.js";
 import { isTestFile } from "../src/lib/scope.js";
 
 const created: string[] = [];
@@ -227,7 +230,7 @@ describe("canonicalGraphPath", () => {
       );
 
       const graph = getGraph(srcDir, [], entryPath);
-      const settings = getGraphResolutionSettings(graph, srcDir);
+      const settings = getGraphResolutionSettings(graph);
 
       // The false positive: resolving the wrong-case specifier that actually
       // lands on the door.
@@ -374,7 +377,7 @@ describe("getGraphResolutionSettings", () => {
     );
 
     const graph = getGraph(srcDir, [], path.join(srcDir, "a.ts"));
-    const settings = getGraphResolutionSettings(graph, srcDir);
+    const settings = getGraphResolutionSettings(graph);
 
     expect(settings.options.paths).toEqual({ "@/*": ["src/*"] });
     expect(settings.configPaths).toContain(path.join(base, "tsconfig.json"));
@@ -386,18 +389,52 @@ describe("getGraphResolutionSettings", () => {
     expect(resolveSpecifier("@/b", srcDir)).toBeUndefined();
   });
 
-  it("computes fresh settings for a graph it never built", () => {
-    const base = tempDir("colocate-settings-fresh-");
+  it("returns no-project settings for a graph that was never built", () => {
+    const base = tempDir("colocate-settings-unprimed-");
     const srcDir = path.join(base, "src");
     fs.mkdirSync(srcDir);
     fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
-
-    const settings = getGraphResolutionSettings(
-      { files: [], importers: new Map() },
-      srcDir,
+    fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
+    fs.writeFileSync(
+      path.join(base, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@/*": ["src/*"] },
+        },
+      }),
     );
 
-    expect(settings.options).toBeDefined();
-    expect(Array.isArray(settings.configPaths)).toBe(true);
+    const settings = getGraphResolutionSettings({
+      files: [],
+      importers: new Map(),
+    });
+
+    expect(settings.options.paths).toBeUndefined();
+    expect(resolveSpecifier("@/b", srcDir, settings)).toBeUndefined();
+  });
+
+  it("computes settings from a real root without a graph", () => {
+    const base = tempDir("colocate-settings-root-");
+    const srcDir = path.join(base, "src");
+    fs.mkdirSync(srcDir);
+    fs.writeFileSync(path.join(srcDir, "a.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
+    fs.writeFileSync(
+      path.join(base, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@/*": ["src/*"] },
+        },
+      }),
+    );
+
+    const settings = createResolutionSettings(srcDir);
+
+    expect(settings.options.paths).toEqual({ "@/*": ["src/*"] });
+    expect(resolveSpecifier("@/b", srcDir, settings)).toBe(
+      fs.realpathSync(path.join(base, "src", "b.ts")),
+    );
   });
 });

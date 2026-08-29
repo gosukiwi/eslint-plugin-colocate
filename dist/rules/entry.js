@@ -45,7 +45,7 @@ function staticSpecifier(source) {
  */
 function crossedGate(specifier, subject) {
     const graph = subject.graph();
-    const resolved = resolveSpecifier(specifier, path.dirname(subject.file), getGraphResolutionSettings(graph, subject.rootDir));
+    const resolved = resolveSpecifier(specifier, path.dirname(subject.file), getGraphResolutionSettings(graph));
     if (resolved === undefined) {
         return undefined;
     }

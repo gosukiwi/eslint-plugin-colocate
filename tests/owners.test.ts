@@ -52,7 +52,8 @@ function emptyGraph(): Graph {
   return { importers: new Map(), files: [] };
 }
 
-describe("collectLayerDirectories", () => {  it("expands single-segment * globs to child directories", () => {
+describe("collectLayerDirectories", () => {
+  it("expands single-segment * globs to child directories", () => {
     const cwd = fs.realpathSync(nestedLayerRoot);
     const buttonDir = path.join(cwd, "src/ui/Button");
 
@@ -125,7 +126,7 @@ describe("collectReExports", () => {
     fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
 
     const graph = buildGraph(srcDir, []);
-    const { local, total } = collectReExports(indexPath, fooDir, graph, srcDir);
+    const { local, total } = collectReExports(indexPath, fooDir, graph);
 
     // Without the fold this is the NFC path the specifier spelled, which is not
     // a graph key - graphHasFile rejects it and mismatchedEntry is lost.

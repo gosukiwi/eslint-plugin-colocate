@@ -61,7 +61,7 @@ function crossedGate(
   const resolved = resolveSpecifier(
     specifier,
     path.dirname(subject.file),
-    getGraphResolutionSettings(graph, subject.rootDir),
+    getGraphResolutionSettings(graph),
   );
   if (resolved === undefined) {
     return undefined;
