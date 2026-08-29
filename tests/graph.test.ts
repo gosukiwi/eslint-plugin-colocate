@@ -39,6 +39,12 @@ function foldsNormalization(dir: string): boolean {
   return fs.existsSync(path.join(dir, name.normalize("NFC")));
 }
 
+const normProbeDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), "colocate-graph-norm-probe-"),
+);
+const filesystemFoldsNormalization = foldsNormalization(normProbeDir);
+fs.rmSync(normProbeDir, { recursive: true, force: true });
+
 const fixtureRoot = path.join(
   fileURLToPath(new URL(".", import.meta.url)),
   "fixtures/graph",
@@ -337,33 +343,33 @@ describe("getGraph", () => {
 });
 
 describe("buildGraph", () => {
-  it("records an importer when the specifier and the on-disk path differ only by Unicode normalization", () => {
-    const base = fs.realpathSync(tempDir("colocate-graph-nfd-"));
-    if (!foldsNormalization(base)) {
-      return;
-    }
+  it.skipIf(!filesystemFoldsNormalization)(
+    "records an importer when the specifier and the on-disk path differ only by Unicode normalization",
+    () => {
+      const base = fs.realpathSync(tempDir("colocate-graph-nfd-"));
+      const nfc = "Café"; // é as a single code point
+      const nfd = "Café"; // e followed by a combining acute
+      const srcDir = path.join(base, "src");
+      fs.mkdirSync(path.join(srcDir, nfc), { recursive: true });
+      fs.writeFileSync(
+        path.join(srcDir, nfc, "helper.ts"),
+        "export const h = 1;\n",
+      );
+      fs.writeFileSync(
+        path.join(srcDir, "app.ts"),
+        `import "./${nfd}/helper";\n`,
+      );
 
-    const nfc = "Café"; // é as a single code point
-    const nfd = "Café"; // e followed by a combining acute
-    const srcDir = path.join(base, "src");
-    fs.mkdirSync(path.join(srcDir, nfc), { recursive: true });
-    fs.writeFileSync(
-      path.join(srcDir, nfc, "helper.ts"),
-      "export const h = 1;\n",
-    );
-    fs.writeFileSync(
-      path.join(srcDir, "app.ts"),
-      `import "./${nfd}/helper";\n`,
-    );
+      const graph = buildGraph(srcDir, []);
+      const helperPath = graph.files.find(
+        (file) => path.basename(file) === "helper.ts",
+      );
+      const appPath = path.join(srcDir, "app.ts");
 
-    const graph = buildGraph(srcDir, []);
-    const helperPath = graph.files.find(
-      (file) => path.basename(file) === "helper.ts",
-    ) as string;
-    const appPath = path.join(srcDir, "app.ts");
-
-    expect(graph.importers.get(helperPath)).toEqual([appPath]);
-  });
+      expect(helperPath).toBeDefined();
+      expect(graph.importers.get(helperPath!)).toEqual([appPath]);
+    },
+  );
 });
 
 describe("canonicalGraphPath", () => {
