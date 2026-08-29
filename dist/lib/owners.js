@@ -8,7 +8,8 @@ import { parseSourceFile } from "./parse.js";
 import { isInsideDir } from "./paths.js";
 import { resolveSpecifier } from "./resolve.js";
 import { SKIP_DIRS } from "./scope.js";
-export function collectReExports(indexFile, dir, graph) {
+const reExportsByGraph = derivedFromGraph(() => new Map());
+function scanReExports(indexFile, dir, graph) {
     const content = safeReadFile(indexFile);
     const realDir = safeRealpath(dir);
     const realIndex = safeRealpath(indexFile);
@@ -39,6 +40,17 @@ export function collectReExports(indexFile, dir, graph) {
     };
     visit(sourceFile);
     return { local: [...local], total: modules.size };
+}
+export function collectReExports(indexFile, dir, graph) {
+    const key = indexFile + "\0" + dir;
+    const perGraph = reExportsByGraph(graph);
+    const cached = perGraph.get(key);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const result = scanReExports(indexFile, dir, graph);
+    perGraph.set(key, result);
+    return result;
 }
 function isNamespaceBarrel(filePath, graph) {
     const basename = path.basename(filePath, path.extname(filePath));

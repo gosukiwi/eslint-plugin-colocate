@@ -24,7 +24,9 @@ export interface ReExports {
   total: number;
 }
 
-export function collectReExports(
+const reExportsByGraph = derivedFromGraph(() => new Map<string, ReExports>());
+
+function scanReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
@@ -64,6 +66,23 @@ export function collectReExports(
 
   visit(sourceFile);
   return { local: [...local], total: modules.size };
+}
+
+export function collectReExports(
+  indexFile: string,
+  dir: string,
+  graph: Graph,
+): ReExports {
+  const key = indexFile + "\0" + dir;
+  const perGraph = reExportsByGraph(graph);
+  const cached = perGraph.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = scanReExports(indexFile, dir, graph);
+  perGraph.set(key, result);
+  return result;
 }
 
 function isNamespaceBarrel(filePath: string, graph: Graph): boolean {

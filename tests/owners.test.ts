@@ -117,4 +117,95 @@ describe("collectReExports", () => {
     expect(graph.files).toContain(local[0]);
     expect(total).toBe(1);
   });
+
+  it("memoises per graph and barrel path", () => {
+    const base = fs.realpathSync(tempDir("colocate-reexport-memo-"));
+    const srcDir = path.join(base, "src");
+    const fooDir = path.join(srcDir, "Foo");
+    fs.mkdirSync(fooDir, { recursive: true });
+    fs.writeFileSync(path.join(fooDir, "A.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(fooDir, "B.ts"), "export const b = 1;\n");
+    const indexPath = path.join(fooDir, "index.ts");
+    fs.writeFileSync(indexPath, 'export * from "./A";\n');
+    fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
+
+    const graph = buildGraph(srcDir, []);
+    const first = collectReExports(indexPath, fooDir, graph);
+    const second = collectReExports(indexPath, fooDir, graph);
+
+    expect(second).toBe(first);
+  });
+
+  it("keys the memo on the directory argument", () => {
+    const base = fs.realpathSync(tempDir("colocate-reexport-memo-"));
+    const srcDir = path.join(base, "src");
+    const fooDir = path.join(srcDir, "Foo");
+    fs.mkdirSync(fooDir, { recursive: true });
+    fs.writeFileSync(path.join(fooDir, "A.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(fooDir, "B.ts"), "export const b = 1;\n");
+    const indexPath = path.join(fooDir, "index.ts");
+    fs.writeFileSync(indexPath, 'export * from "./A";\n');
+    fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
+
+    const graph = buildGraph(srcDir, []);
+    const first = collectReExports(indexPath, fooDir, graph);
+    expect(first.local).toEqual([path.join(fooDir, "A.ts")]);
+
+    const second = collectReExports(indexPath, srcDir, graph);
+
+    expect(second).not.toBe(first);
+    expect(second.local).not.toEqual(first.local);
+  });
+
+  it("does not re-read the barrel after the file changes", () => {
+    const base = fs.realpathSync(tempDir("colocate-reexport-memo-"));
+    const srcDir = path.join(base, "src");
+    const fooDir = path.join(srcDir, "Foo");
+    fs.mkdirSync(fooDir, { recursive: true });
+    fs.writeFileSync(path.join(fooDir, "A.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(fooDir, "B.ts"), "export const b = 1;\n");
+    const indexPath = path.join(fooDir, "index.ts");
+    fs.writeFileSync(indexPath, 'export * from "./A";\n');
+    fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
+
+    const graph = buildGraph(srcDir, []);
+    const first = collectReExports(indexPath, fooDir, graph);
+    expect(first.local).toEqual([path.join(fooDir, "A.ts")]);
+
+    fs.writeFileSync(
+      indexPath,
+      'export * from "./A";\nexport * from "./B";\n',
+    );
+    const second = collectReExports(indexPath, fooDir, graph);
+
+    expect(second).toBe(first);
+    expect(second.local).toHaveLength(1);
+  });
+
+  it("recomputes for a rebuilt graph", () => {
+    const base = fs.realpathSync(tempDir("colocate-reexport-memo-"));
+    const srcDir = path.join(base, "src");
+    const fooDir = path.join(srcDir, "Foo");
+    fs.mkdirSync(fooDir, { recursive: true });
+    fs.writeFileSync(path.join(fooDir, "A.ts"), "export const a = 1;\n");
+    fs.writeFileSync(path.join(fooDir, "B.ts"), "export const b = 1;\n");
+    const indexPath = path.join(fooDir, "index.ts");
+    fs.writeFileSync(indexPath, 'export * from "./A";\n');
+    fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
+
+    const graph = buildGraph(srcDir, []);
+    const first = collectReExports(indexPath, fooDir, graph);
+
+    fs.writeFileSync(
+      indexPath,
+      'export * from "./A";\nexport * from "./B";\n',
+    );
+    const graph2 = buildGraph(srcDir, []);
+    const second = collectReExports(indexPath, fooDir, graph2);
+
+    expect(second).not.toBe(first);
+    expect(second.local).toHaveLength(2);
+    expect(second.local).toContain(path.join(fooDir, "A.ts"));
+    expect(second.local).toContain(path.join(fooDir, "B.ts"));
+  });
 });
