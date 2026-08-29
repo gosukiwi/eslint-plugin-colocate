@@ -59,6 +59,10 @@ describe("stampIsAmbiguous", () => {
     expect(stampIsAmbiguous(5_002_000, builtAt, true)).toBe(false);
   });
 
+  it("distrusts a stamp written in a later second that is still within the rebuild", () => {
+    expect(stampIsAmbiguous(5_002_000, builtAt, true, 5_002_500)).toBe(true);
+  });
+
   it("trusts everything when timestamps are fine-grained", () => {
     expect(stampIsAmbiguous(5_000_000, builtAt, false)).toBe(false);
   });

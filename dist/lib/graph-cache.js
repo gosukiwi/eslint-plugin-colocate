@@ -37,12 +37,13 @@ function stampConfigs(configPaths) {
     }
     return stamps;
 }
-export function stampIsAmbiguous(mtimeMs, builtAt, coarseTimestamps) {
+export function stampIsAmbiguous(mtimeMs, builtAt, coarseTimestamps, stampedAt = builtAt) {
     if (!coarseTimestamps) {
         return false;
     }
     const buildSecond = Math.floor(builtAt / 1000) * 1000;
-    return mtimeMs >= buildSecond && mtimeMs < buildSecond + 1000;
+    const stampedSecond = Math.floor(stampedAt / 1000) * 1000 + 1000;
+    return mtimeMs >= buildSecond && mtimeMs < stampedSecond;
 }
 function tsconfigNeedsRebuild(snapshot, rootDir) {
     const currentPath = findTsconfig(safeRealpath(rootDir) ?? rootDir);
@@ -64,7 +65,7 @@ function trackedFilesChanged(snapshot) {
             stat.size !== prev.size) {
             return true;
         }
-        if (stampIsAmbiguous(stat.mtimeMs, snapshot.builtAt, snapshot.coarseTimestamps)) {
+        if (stampIsAmbiguous(stat.mtimeMs, snapshot.builtAt, snapshot.coarseTimestamps, snapshot.stampedAt)) {
             return true;
         }
     }
@@ -143,6 +144,7 @@ export function getGraph(rootDir, ignoreGlobs, currentFile, visitToken) {
             stamps,
             configs: stampConfigs(configPaths),
             builtAt,
+            stampedAt: Date.now(),
             coarseTimestamps: hasCoarseTimestamps(stamps),
         },
         pass: {

@@ -25,6 +25,7 @@ interface Snapshot {
   stamps: Map<string, FileStamp>;
   configs: TsconfigStamp[];
   builtAt: number;
+  stampedAt: number;
   coarseTimestamps: boolean;
 }
 
@@ -81,12 +82,14 @@ export function stampIsAmbiguous(
   mtimeMs: number,
   builtAt: number,
   coarseTimestamps: boolean,
+  stampedAt: number = builtAt,
 ): boolean {
   if (!coarseTimestamps) {
     return false;
   }
   const buildSecond = Math.floor(builtAt / 1000) * 1000;
-  return mtimeMs >= buildSecond && mtimeMs < buildSecond + 1000;
+  const stampedSecond = Math.floor(stampedAt / 1000) * 1000 + 1000;
+  return mtimeMs >= buildSecond && mtimeMs < stampedSecond;
 }
 
 function tsconfigNeedsRebuild(snapshot: Snapshot, rootDir: string): boolean {
@@ -113,7 +116,12 @@ function trackedFilesChanged(snapshot: Snapshot): boolean {
       return true;
     }
     if (
-      stampIsAmbiguous(stat.mtimeMs, snapshot.builtAt, snapshot.coarseTimestamps)
+      stampIsAmbiguous(
+        stat.mtimeMs,
+        snapshot.builtAt,
+        snapshot.coarseTimestamps,
+        snapshot.stampedAt,
+      )
     ) {
       return true;
     }
@@ -231,6 +239,7 @@ export function getGraph(
       stamps,
       configs: stampConfigs(configPaths),
       builtAt,
+      stampedAt: Date.now(),
       coarseTimestamps: hasCoarseTimestamps(stamps),
     },
     pass: {
