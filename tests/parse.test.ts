@@ -31,6 +31,15 @@ describe("extractSpecifiers", () => {
     expect(extractSpecifiers('require("./mod");\n', "a.js")).toEqual(["./mod"]);
   });
 
+  it("records import() nested in lazy(() => import())", () => {
+    expect(
+      extractSpecifiers(
+        'const Page = lazy(() => import("./mod"));\n',
+        "a.ts",
+      ),
+    ).toEqual(["./mod"]);
+  });
+
   it("records import() with a no-substitution template specifier", () => {
     expect(extractSpecifiers("import(`./mod`);\n", "a.ts")).toEqual(["./mod"]);
   });
