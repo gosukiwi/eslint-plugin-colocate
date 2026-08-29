@@ -28,11 +28,25 @@ const graphFilesByFoldedPath = derivedFromGraph(
   (graph) => new Map(graph.files.map((file) => [foldGraphPath(file), file])),
 );
 
-export function canonicalGraphPath(graph: Graph, filePath: string): string {
-  if (graphFileSet(graph).has(filePath)) {
+function graphFileForPath(
+  fileSet: ReadonlySet<string>,
+  filesByFoldedPath: ReadonlyMap<string, string>,
+  filePath: string,
+): string | undefined {
+  if (fileSet.has(filePath)) {
     return filePath;
   }
-  return graphFilesByFoldedPath(graph).get(foldGraphPath(filePath)) ?? filePath;
+  return filesByFoldedPath.get(foldGraphPath(filePath));
+}
+
+export function canonicalGraphPath(graph: Graph, filePath: string): string {
+  return (
+    graphFileForPath(
+      graphFileSet(graph),
+      graphFilesByFoldedPath(graph),
+      filePath,
+    ) ?? filePath
+  );
 }
 
 function noProjectResolutionSettings(): ResolutionSettings {
@@ -64,9 +78,9 @@ export function buildGraphFromFiles(
   resolvedRoot: string,
 ): { graph: Graph; configPaths: string[] } {
   const fileSet = new Set(files);
-  const filesByLowerCase = ts.sys.useCaseSensitiveFileNames
-    ? undefined
-    : new Map(files.map((file) => [file.toLowerCase(), file]));
+  const filesByFoldedPath = new Map(
+    files.map((file) => [foldGraphPath(file), file]),
+  );
   const importers = new Map<string, string[]>();
   const settings = createResolutionSettings(resolvedRoot);
 
@@ -86,9 +100,7 @@ export function buildGraphFromFiles(
       if (resolved === undefined) {
         continue;
       }
-      const target = fileSet.has(resolved)
-        ? resolved
-        : filesByLowerCase?.get(resolved.toLowerCase());
+      const target = graphFileForPath(fileSet, filesByFoldedPath, resolved);
       if (target === undefined || target === file) {
         continue;
       }
@@ -105,6 +117,7 @@ export function buildGraphFromFiles(
   const graph: Graph = { importers, files };
   getGraphResolutionSettings.prime(graph, settings);
   graphFileSet.prime(graph, fileSet);
+  graphFilesByFoldedPath.prime(graph, filesByFoldedPath);
   return { graph, configPaths: settings.configPaths };
 }
 
