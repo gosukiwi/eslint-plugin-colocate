@@ -553,10 +553,10 @@ describe("entry rule", () => {
     expect(messages).toEqual([]);
   });
 
-  // The mirror case, and the one graph.ts gets wrong (see AGENTS.md Known
-  // issues): an inner `const require = createRequire(...)` IS the real require
-  // even though an unrelated plain `require` exists in an outer scope. Shadowing
-  // is lexical, not sticky - the nearest binding decides.
+  // The mirror case, and the one graph.ts gets wrong (see
+  // docs/agents/known-issues.md): an inner `const require = createRequire(...)`
+  // IS the real require even though an unrelated plain `require` exists in an
+  // outer scope. Shadowing is lexical, not sticky - the nearest binding decides.
   it("reports an inner createRequire beneath an outer shadowed require", async () => {
     const messages = await lintEntryFixture(
       "entry-require-inner-createrequire",

@@ -10,14 +10,15 @@
  *
  * `colocate/entry` is swept too, for the same property stated its own way:
  * there has to be a *specifier* the importer can use that the rule accepts.
- * Because landing on any door is legal (see "Nested doors count" in AGENTS.md),
- * rewriting the specifier to the named entry always clears the report - unless
- * the door is unreachable from the importer, which happens exactly when the
- * importer already lives inside the module it is being told to enter. Then the
- * only "fix" is for a file to import its own door, i.e. a cycle, and the report
- * is unsatisfiable. That is not hypothetical: the entry rule shipped with such a
- * bug (a wrong-case importer path defeated the inside-the-gate check) and this
- * script could not see it, because it only ever enabled `ownership`.
+ * Because landing on any door is legal (see "Nested doors count" in
+ * docs/agents/entry.md), rewriting the specifier to the named entry always
+ * clears the report - unless the door is unreachable from the importer, which
+ * happens exactly when the importer already lives inside the module it is being
+ * told to enter. Then the only "fix" is for a file to import its own door, i.e.
+ * a cycle, and the report is unsatisfiable. That is not hypothetical: the entry
+ * rule shipped with such a bug (a wrong-case importer path defeated the
+ * inside-the-gate check) and this script could not see it, because it only ever
+ * enabled `ownership`.
  *
  * Not part of `npm test` — it runs a few thousand lints. Run it after touching
  * either model:

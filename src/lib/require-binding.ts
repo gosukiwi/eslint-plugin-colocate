@@ -14,7 +14,7 @@ import ts from "typescript";
  * for every file in the tree, while `rules/entry.ts` answers it over ESLint's
  * scope manager for the one file being linted, and must report on a positioned
  * node. Keeping both in this one file is what stops them drifting apart
- * silently. They already have: see AGENTS.md's Known issues for the binders the
+ * silently. They already have: see docs/agents/known-issues.md for the binders the
  * TypeScript-side walk cannot see.
  */
 // Both spellings count as the constructor: `createRequire(...)` and
