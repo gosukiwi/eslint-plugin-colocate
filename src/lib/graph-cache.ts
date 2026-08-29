@@ -41,7 +41,7 @@ interface CacheEntry {
   pass: PassState;
 }
 
-const cache = new Map<string, CacheEntry>();
+let cache: { key: string; entry: CacheEntry } | undefined;
 
 function cacheKey(rootDir: string, ignoreGlobs: string[]): string {
   return rootDir + "\0" + ignoreGlobs.join("\0");
@@ -205,13 +205,13 @@ export function getGraph(
   visitToken?: VisitToken,
 ): Graph {
   const key = cacheKey(rootDir, ignoreGlobs);
-  const cached = cache.get(key);
   if (
-    cached !== undefined &&
-    isFresh(cached, currentFile, visitToken, rootDir, ignoreGlobs)
+    cache !== undefined &&
+    cache.key === key &&
+    isFresh(cache.entry, currentFile, visitToken, rootDir, ignoreGlobs)
   ) {
-    markVisit(cached.pass, currentFile, visitToken);
-    return cached.snapshot.graph;
+    markVisit(cache.entry.pass, currentFile, visitToken);
+    return cache.entry.snapshot.graph;
   }
 
   const builtAt = Date.now();
@@ -249,8 +249,7 @@ export function getGraph(
       lastVisitAt: builtAt,
     },
   };
-  cache.clear();
-  cache.set(key, entry);
+  cache = { key, entry };
   markVisit(entry.pass, currentFile, visitToken);
   return graph;
 }
