@@ -252,6 +252,7 @@ export function getGraph(
       validatedAt: builtAt,
     },
   };
+  cache.clear();
   cache.set(key, entry);
   markVisit(entry.pass, currentFile, visitToken);
   return graph;

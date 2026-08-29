@@ -296,6 +296,20 @@ describe("graph invalidation within one process", () => {
     );
   });
 
+  it("drops the previous graph when root or ignore changes", () => {
+    const dir = project({
+      "src/a.ts": "export const a = 1;\n",
+      "src/b.ts": "export const b = 1;\n",
+    });
+    const root = path.join(dir, "src");
+    const file = path.join(dir, "src/a.ts");
+
+    const first = getGraph(root, [], file);
+    getGraph(root, ["no-such-dir"], file);
+    const again = getGraph(root, [], file);
+    expect(again).not.toBe(first);
+  });
+
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {
     const dir = project({
       ...APP,
