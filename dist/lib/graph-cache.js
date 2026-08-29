@@ -5,7 +5,7 @@ import { findTsconfig } from "./resolve.js";
 import { isInGraphScope, isSourceFile } from "./scope.js";
 import { collectSourceFiles } from "./walk.js";
 export const REVALIDATE_AFTER_MS = 100;
-const cache = new Map();
+let cache;
 function cacheKey(rootDir, ignoreGlobs) {
     return rootDir + "\0" + ignoreGlobs.join("\0");
 }
@@ -78,29 +78,30 @@ function isProductionGraphFile(currentFile, rootDir, ignoreGlobs) {
     }
     return isInGraphScope(path.relative(realRoot, currentFile), ignoreGlobs);
 }
-function isSameParse(pass, currentFile, visitToken) {
+function isSameVisit(pass, currentFile, visitToken) {
     return (visitToken !== undefined &&
         pass.lastFile === currentFile &&
-        pass.lastToken?.deref() === visitToken &&
-        Date.now() - pass.validatedAt < REVALIDATE_AFTER_MS);
+        pass.lastToken?.deref() === visitToken);
 }
 function isFresh(entry, currentFile, visitToken, rootDir, ignoreGlobs) {
     const { snapshot, pass } = entry;
-    if (isSameParse(pass, currentFile, visitToken)) {
+    const now = Date.now();
+    const sameVisit = isSameVisit(pass, currentFile, visitToken);
+    const idle = now - pass.lastVisitAt >= REVALIDATE_AFTER_MS;
+    if (sameVisit && !idle) {
         return true;
     }
     if (tsconfigNeedsRebuild(snapshot, rootDir)) {
         return false;
     }
-    const now = Date.now();
-    if (pass.visited.has(currentFile) ||
-        now - pass.validatedAt >= REVALIDATE_AFTER_MS) {
+    const newPass = !sameVisit && (pass.visited.has(currentFile) || idle);
+    if (newPass) {
         pass.visited.clear();
-        pass.validatedAt = now;
-        if (trackedFilesChanged(snapshot)) {
-            return false;
-        }
     }
+    if ((newPass || sameVisit) && trackedFilesChanged(snapshot)) {
+        return false;
+    }
+    pass.lastVisitAt = Date.now();
     pass.visited.add(currentFile);
     if (snapshot.stamps.has(currentFile)) {
         return true;
@@ -114,11 +115,11 @@ function markVisit(pass, currentFile, visitToken) {
 }
 export function getGraph(rootDir, ignoreGlobs, currentFile, visitToken) {
     const key = cacheKey(rootDir, ignoreGlobs);
-    const cached = cache.get(key);
-    if (cached !== undefined &&
-        isFresh(cached, currentFile, visitToken, rootDir, ignoreGlobs)) {
-        markVisit(cached.pass, currentFile, visitToken);
-        return cached.snapshot.graph;
+    if (cache !== undefined &&
+        cache.key === key &&
+        isFresh(cache.entry, currentFile, visitToken, rootDir, ignoreGlobs)) {
+        markVisit(cache.entry.pass, currentFile, visitToken);
+        return cache.entry.snapshot.graph;
     }
     const builtAt = Date.now();
     const resolvedRoot = safeRealpath(rootDir);
@@ -138,23 +139,24 @@ export function getGraph(rootDir, ignoreGlobs, currentFile, visitToken) {
         }
         ({ graph, configPaths } = buildGraphFromFiles(files, resolvedRoot));
     }
+    const stampedAt = Date.now();
     const entry = {
         snapshot: {
             graph,
             stamps,
             configs: stampConfigs(configPaths),
             builtAt,
-            stampedAt: Date.now(),
+            stampedAt,
             coarseTimestamps: hasCoarseTimestamps(stamps),
         },
         pass: {
             visited: new Set([currentFile]),
             lastFile: undefined,
             lastToken: undefined,
-            validatedAt: builtAt,
+            lastVisitAt: stampedAt,
         },
     };
-    cache.set(key, entry);
+    cache = { key, entry };
     markVisit(entry.pass, currentFile, visitToken);
     return graph;
 }
