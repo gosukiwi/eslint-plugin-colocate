@@ -1,14 +1,18 @@
 # eslint-plugin-colocate
 
-ESLint (v9+) plugin that flags source files sitting in the wrong place, given who imports them.
+Put files next to whoever uses them.
 
-A file used by one module belongs inside that module's folder. A file used by several belongs at their closest common ancestor — not buried in one of them, and not floating above them. Empty wrapper folders get flagged too.
+An ESLint plugin that enforces dependency-based file organization. A file used by one module belongs inside that module's folder. A file used by several belongs at their closest common ancestor — not buried in one of them, and not floating above them. Empty wrapper folders get flagged too.
+
+The folders become a map of who uses what. Moving a file has a right answer. Reviewers and AI agents follow the same rule, so the layout stays consistent as the codebase grows.
 
 ## Install
 
 ```bash
 npm install -D gosukiwi/eslint-plugin-colocate
 ```
+
+Requires Node 20+ and ESLint 9+.
 
 ## Usage
 
@@ -34,22 +38,6 @@ export default [
   },
 ];
 ```
-
-## The model
-
-The plugin builds an import graph over `root` and checks that each file's location matches its consumers.
-
-**Owners.** A directory is an owner when it has an entry file: one named after the directory (`pages/MyPage/MyPage.ts`), or an `index` that outside code imports through. A barrel that only groups loose helpers does not make its directory an owner. A file with no such folder around it owns only itself.
-
-**Private files.** Imported by exactly one owner → belong inside that owner's folder.
-
-**Shared files.** Imported by two or more owners → belong at their closest common ancestor, not above it and not inside one of them.
-
-A folder's own entry file is never flagged for sitting in its own folder. If the folder itself is in the wrong place, the folders above it report that.
-
-**The app shell.** Entry points (files nothing imports) and what they import directly do not own those imports. So `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` where it is, with no configuration.
-
-For a longer bootstrap chain (`main → router → App → pages/...`), or a shell that imports loose top-level modules, declare those directories as `layers`.
 
 ## Examples
 
@@ -115,33 +103,21 @@ src/ui/Button/Button.ts
 src/pages/Home/Home.ts
 ```
 
-## Options
+## The model
 
-*These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options.*
+The plugin builds an import graph over `root` and checks that each file's location matches its consumers.
 
-### `root`
+**Owners.** A directory is an owner when it has an entry file: one named after the directory (`pages/MyPage/MyPage.ts`), or an `index` that outside code imports through. A barrel that only groups loose helpers does not make its directory an owner. A file with no such folder around it owns only itself.
 
-Directory to walk, and the ceiling for ownership. Default `"."`. Set `"src"` for a typical app.
+**Private files.** Imported by exactly one owner → belong inside that owner's folder.
 
-A relative `root` is resolved from the working directory, then searched upward so `eslint` still works from a subdirectory. The search stops at the nearest `package.json` or `.git`. Files outside `root` are never reported.
+**Shared files.** Imported by two or more owners → belong at their closest common ancestor, not above it and not inside one of them.
 
-### `layers`
+A folder's own entry file is never flagged for sitting in its own folder. If the folder itself is in the wrong place, the folders above it report that.
 
-Directories whose immediate children are public peers: they may have one consumer or many, and they stay where they are. With `layers: ["src/ui"]`, `src/ui/Button` is not expected to move into the page that uses it.
+**The app shell.** Entry points (files nothing imports) and what they import directly do not own those imports. So `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` where it is, with no configuration.
 
-Only the layer's own files and each child folder's entry (`Button/Button.ts` or `Button/index.ts`) get this treatment. Files deeper in (`ui/Button/internals/state.ts`) are still checked.
-
-This is also how a deeper app shell is described:
-
-```js
-layers: ["src", "src/pages"] // top-level modules and pages are public peers
-```
-
-### `ignore`
-
-Globs relative to `root`. Ignored files are not reported and do not count as consumers. A glob naming a directory excludes everything under it. Negation (`!`) is not supported — list what to exclude.
-
-Unknown option names are rejected.
+For a longer bootstrap chain (`main → router → App → pages/...`), or a shell that imports loose top-level modules, declare those directories as `layers`.
 
 ## What it reports
 
@@ -158,6 +134,34 @@ Unknown option names are rejected.
 `singletonFolder` looks for a companion stylesheet only in the same directory (`.css`, `.scss`, `.sass`, `.less`, `.styl`).
 
 An `index` that re-exports two or more siblings is a namespace barrel and is left alone.
+
+## Options
+
+*These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options.* Unknown option names are rejected.
+
+### `root`
+
+Directory to walk, and the ceiling for ownership. Default `"."`. Set `"src"` for a typical app.
+
+A relative `root` is resolved from the working directory, then searched upward so `eslint` still works from a subdirectory. The search stops at the nearest `package.json` or `.git`. Files outside `root` are never reported.
+
+### `layers`
+
+Directories whose immediate children are public peers: they may have one consumer or many, and they stay where they are. With `layers: ["src/ui"]`, `src/ui/Button` is not expected to move into the page that uses it.
+
+Paths are matched relative to `root` and to the working directory, so with `root: "src"` both `["ui"]` and `["src/ui"]` work.
+
+Only the layer's own files and each child folder's entry (`Button/Button.ts` or `Button/index.ts`) get this treatment. Files deeper in (`ui/Button/internals/state.ts`) are still checked.
+
+This is also how a deeper app shell is described:
+
+```js
+layers: ["src", "src/pages"] // top-level modules and pages are public peers
+```
+
+### `ignore`
+
+Globs relative to `root`. Ignored files are not reported and do not count as consumers. A glob naming a directory excludes everything under it. Negation (`!`) is not supported — list what to exclude.
 
 ## The entry rule
 
@@ -182,7 +186,7 @@ import { loadThread } from "../pages/Inbox/Inbox.ts";
 
 **Unlike `ownership`, entry points get no exemption.** A file nothing imports still may not reach past a door; a shell burrowing into a feature's internals is exactly the finding worth having.
 
-Options are `root` and `ignore`, with the same meaning as `ownership`. There is no `layers` option — layers are about placement, and say nothing about access. There is no autofix: rewriting a specifier would produce code that doesn't compile whenever the door doesn't already re-export the symbol, so widening the door is left to the user.
+Options are `root` and `ignore`, with the same meaning as `ownership`. There is no `layers` option — layers are about placement, and say nothing about access. Do not ignore an entry file: that removes the door, and reaching into that folder stops being an error. There is no autofix: rewriting a specifier would produce code that doesn't compile whenever the door doesn't already re-export the symbol, so widening the door is left to the user.
 
 ## Notes
 
