@@ -4,7 +4,7 @@ import ownership from "./rules/ownership.js";
 export default {
   meta: {
     name: "eslint-plugin-colocate",
-    version: "0.0.1",
+    version: "0.0.2",
   },
   rules: {
     entry,

@@ -4,7 +4,11 @@ Separate rule, separate concept. `ownership` asks where a file belongs; `entry` 
 
 **Gate.** A directory containing an entry file: named after the directory, or `index`. Detection is **structural** — unlike `isOwnerEntryFile`, nothing has to import it. That difference is deliberate: the imported-through condition exists to stop a convenience barrel from redrawing *ownership* boundaries, and a door that gated nothing until consumers had already migrated would never engage. Do not reuse `isOwnerEntryFile` for entry detection.
 
-**Illegal** ⟺ the target is not an entry file **and** some gate contains the target but not the importer. Report on the specifier node, naming the **innermost** such gate (`index` wins when a directory has two doors).
+**Two kinds of door.** A file named after its folder (`Foo/Foo.ts`) is the shortcut door: the public module is that file. `index.ts` is the barrel door: the public surface may come from more than one file. `index` re-exporting siblings is allowed; a named door identity-re-exporting another source file in the graph is not.
+
+**Illegal crossing** ⟺ the target is not an entry file **and** some gate contains the target but not the importer. Report on the specifier node, naming the **innermost** such gate (`index` wins when a directory has two doors). Message id: `reachesPastEntry`.
+
+**Named door re-export** is a separate finding (`namedDoorReexport`): shape-only — it does not change gates, `isEntryFile`, or `isOwnerEntryFile`. Detection lives in `src/lib/named-door.ts`; `src/rules/entry.ts` is the adapter that reports it. Identity forms: `export … from`, import-then-export, and `require` / `import-equals` as sources. Type-only re-exports are skipped; package specifiers are skipped; wrap-around re-exports (re-exporting through the door again) are silent. CJS `module.exports` is out of scope ([#35](https://github.com/gosukiwi/eslint-plugin-colocate/issues/35)).
 
 **Nested doors count.** Landing on any entry is legal, including a child module's. This is what makes innermost the right gate to name: any door is a legal terminus, so one report is always one edit, with no cascade.
 
@@ -21,3 +25,5 @@ Both the target *and* the importer must be passed through `canonicalGraphPath` b
 `entry`'s `CallExpression` visitor narrows to a single-argument `require()`, unlike `parse.ts`, which takes `arguments[0]` at any arity — a real CJS `require` never takes a second argument. Note that this argument cuts the other way too: it is `parse.ts` that should narrow, and until it does, a two-argument `require()` creates a graph edge and so a possible `ownership` report that `entry` will not corroborate. See [known-issues](known-issues.md).
 
 `requireIsShadowed` requires **every** def of a `require` binding to be a `createRequire` call before treating it as the real require. Asking whether *any* def was one is order-blind: `var require = createRequire(url)` followed by `var require = 1` leaves a number at the call site, so it loads nothing. The mirror case (plain first, `createRequire` second) is now a false negative — the right way round for a lint rule, and just as rare, since both need `require` declared twice in one scope.
+
+`scripts/check-placement.ts` treats only `reachesPastEntry` as a crossing for satisfiability; `namedDoorReexport` is ignored there.
