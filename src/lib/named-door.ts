@@ -9,6 +9,7 @@ import {
   type Graph,
 } from "./graph.js";
 import { parseSourceFile } from "./parse.js";
+import { scopeBindsRequire } from "./require-binding.js";
 import { resolveSpecifier } from "./resolve.js";
 
 export function isNamedDoor(filePath: string): boolean {
@@ -34,6 +35,63 @@ function isValueReexport(node: ts.ExportDeclaration): boolean {
   return false;
 }
 
+function stringLiteralText(node: ts.Node | undefined): string | undefined {
+  if (node !== undefined && ts.isStringLiteralLike(node)) {
+    return node.text;
+  }
+  return undefined;
+}
+
+function isRealRequire(
+  node: ts.CallExpression,
+  requireIsCjs: boolean,
+): boolean {
+  return (
+    requireIsCjs &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "require" &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteralLike(node.arguments[0])
+  );
+}
+
+function bindRequireNames(
+  name: ts.BindingName,
+  target: string,
+  origins: Map<string, string>,
+): void {
+  if (ts.isIdentifier(name)) {
+    origins.set(name.text, target);
+    return;
+  }
+  if (ts.isObjectBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      const localName =
+        (element.propertyName !== undefined &&
+        ts.isIdentifier(element.propertyName)
+          ? element.propertyName.text
+          : undefined) ??
+        (ts.isIdentifier(element.name) ? element.name.text : undefined);
+      if (localName !== undefined) {
+        origins.set(localName, target);
+      }
+    }
+  }
+}
+
+function hasExportModifier(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    node.modifiers !== undefined &&
+    node.modifiers.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+  );
+}
+
 export function namedDoorReexports(
   filePath: string,
   graph: Graph,
@@ -49,30 +107,174 @@ export function namedDoorReexports(
   const settings = getGraphResolutionSettings(graph);
   const fromDir = path.dirname(filePath);
   const results: { target: string; pos: number }[] = [];
+  const origins = new Map<string, string>();
 
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isExportDeclaration(node) &&
-      node.moduleSpecifier !== undefined &&
-      ts.isStringLiteralLike(node.moduleSpecifier) &&
-      isValueReexport(node)
-    ) {
-      const resolved = resolveSpecifier(
-        node.moduleSpecifier.text,
-        fromDir,
-        settings,
-      );
-      if (resolved === undefined) {
-        return;
-      }
-      const target = canonicalGraphPath(graph, resolved);
-      if (graphHasFile(graph, target)) {
-        results.push({ target, pos: node.getStart(sourceFile) });
-      }
+  const resolveInGraph = (specifier: string): string | undefined => {
+    const resolved = resolveSpecifier(specifier, fromDir, settings);
+    if (resolved === undefined) {
+      return undefined;
     }
-    ts.forEachChild(node, visit);
+    const target = canonicalGraphPath(graph, resolved);
+    if (!graphHasFile(graph, target)) {
+      return undefined;
+    }
+    return target;
   };
 
-  visit(sourceFile);
+  const reportIdentityExport = (
+    node: ts.Node,
+    target: string | undefined,
+  ): void => {
+    if (target !== undefined) {
+      results.push({ target, pos: node.getStart(sourceFile) });
+    }
+  };
+
+  const firstValueNamedExportTarget = (
+    elements: ts.NodeArray<ts.ExportSpecifier>,
+  ): string | undefined => {
+    for (const element of elements) {
+      if (element.isTypeOnly) {
+        continue;
+      }
+      const localName =
+        (element.propertyName !== undefined &&
+        ts.isIdentifier(element.propertyName)
+          ? element.propertyName.text
+          : undefined) ?? element.name.text;
+      const target = origins.get(localName);
+      if (target !== undefined) {
+        return target;
+      }
+    }
+    return undefined;
+  };
+
+  const collectOrigins = (node: ts.Node, requireIsCjs: boolean): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.importClause !== undefined &&
+      !node.importClause.isTypeOnly
+    ) {
+      const target = resolveInGraph(
+        stringLiteralText(node.moduleSpecifier) ?? "",
+      );
+      if (target !== undefined) {
+        const clause = node.importClause;
+        if (clause.name !== undefined) {
+          origins.set(clause.name.text, target);
+        }
+        const bindings = clause.namedBindings;
+        if (bindings !== undefined) {
+          if (ts.isNamespaceImport(bindings)) {
+            origins.set(bindings.name.text, target);
+          } else if (ts.isNamedImports(bindings)) {
+            for (const element of bindings.elements) {
+              if (!element.isTypeOnly) {
+                origins.set(element.name.text, target);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isIdentifier(node.name)
+    ) {
+      const target = resolveInGraph(
+        stringLiteralText(node.moduleReference.expression) ?? "",
+      );
+      if (target !== undefined) {
+        origins.set(node.name.text, target);
+      }
+    }
+
+    if (ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (
+          declaration.initializer !== undefined &&
+          ts.isCallExpression(declaration.initializer) &&
+          isRealRequire(declaration.initializer, requireIsCjs)
+        ) {
+          const target = resolveInGraph(
+            stringLiteralText(declaration.initializer.arguments[0]) ?? "",
+          );
+          if (target !== undefined) {
+            bindRequireNames(declaration.name, target, origins);
+          }
+        }
+      }
+    }
+  };
+
+  const checkExports = (node: ts.Node, requireIsCjs: boolean): void => {
+    if (ts.isExportDeclaration(node)) {
+      if (
+        node.moduleSpecifier !== undefined &&
+        ts.isStringLiteralLike(node.moduleSpecifier) &&
+        isValueReexport(node)
+      ) {
+        const target = resolveInGraph(node.moduleSpecifier.text);
+        reportIdentityExport(node, target);
+        return;
+      }
+      if (
+        node.moduleSpecifier === undefined &&
+        node.exportClause !== undefined &&
+        ts.isNamedExports(node.exportClause) &&
+        !node.isTypeOnly
+      ) {
+        reportIdentityExport(
+          node,
+          firstValueNamedExportTarget(node.exportClause.elements),
+        );
+        return;
+      }
+    }
+
+    if (ts.isExportAssignment(node)) {
+      if (ts.isIdentifier(node.expression)) {
+        reportIdentityExport(node, origins.get(node.expression.text));
+        return;
+      }
+      if (
+        ts.isCallExpression(node.expression) &&
+        isRealRequire(node.expression, requireIsCjs)
+      ) {
+        reportIdentityExport(
+          node,
+          resolveInGraph(
+            stringLiteralText(node.expression.arguments[0]) ?? "",
+          ),
+        );
+      }
+      return;
+    }
+
+    if (hasExportModifier(node) && ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer !== undefined &&
+          ts.isIdentifier(declaration.initializer)
+        ) {
+          reportIdentityExport(node, origins.get(declaration.initializer.text));
+          return;
+        }
+      }
+    }
+  };
+
+  const visit = (node: ts.Node, shadowed: boolean): void => {
+    const requireIsCjs = !(shadowed || scopeBindsRequire(node));
+    collectOrigins(node, requireIsCjs);
+    checkExports(node, requireIsCjs);
+    ts.forEachChild(node, (child) => visit(child, !requireIsCjs));
+  };
+
+  visit(sourceFile, false);
   return results;
 }

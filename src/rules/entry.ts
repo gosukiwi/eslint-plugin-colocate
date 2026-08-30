@@ -149,12 +149,16 @@ const rule: Rule.RuleModule = {
       ImportDeclaration: (node) => check(node.source),
       ExportNamedDeclaration: (node) => {
         check(node.source);
-        if (node.source !== null) {
-          reportNamedDoorReexport(node);
-        }
+        reportNamedDoorReexport(node);
       },
       ExportAllDeclaration: (node) => {
         check(node.source);
+        reportNamedDoorReexport(node);
+      },
+      ExportDefaultDeclaration: (node) => {
+        reportNamedDoorReexport(node);
+      },
+      ExportAssignment: (node: ESTree.Node) => {
         reportNamedDoorReexport(node);
       },
       ImportExpression: (node) => check(node.source),
