@@ -93,7 +93,11 @@ const rule: Rule.RuleModule = {
 
     const reexportsByPos = isNamedDoor(subject.file)
       ? new Map(
-          namedDoorReexports(subject.file, subject.graph()).map((reexport) => [
+          namedDoorReexports(
+            subject.file,
+            subject.graph(),
+            context.sourceCode.getText(),
+          ).map((reexport) => [
             reexport.pos,
             reexport.target,
           ]),

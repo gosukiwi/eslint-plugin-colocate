@@ -87,15 +87,19 @@ function hasExportModifier(node: ts.Node): boolean {
 export function namedDoorReexports(
   filePath: string,
   graph: Graph,
+  content?: string,
 ): readonly { target: string; pos: number }[] {
   if (!isNamedDoor(filePath)) {
     return [];
   }
-  const content = safeReadFile(filePath);
-  if (content === undefined) {
+  const source =
+    typeof content === "string"
+      ? content
+      : safeReadFile(filePath);
+  if (source === undefined) {
     return [];
   }
-  const sourceFile = parseSourceFile(filePath, content);
+  const sourceFile = parseSourceFile(filePath, source);
   const settings = getGraphResolutionSettings(graph);
   const fromDir = path.dirname(filePath);
   const results: { target: string; pos: number }[] = [];
