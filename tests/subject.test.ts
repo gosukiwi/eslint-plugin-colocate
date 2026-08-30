@@ -82,9 +82,12 @@ describe("resolveSubject", () => {
     );
     await new Promise((r) => setTimeout(r, REVALIDATE_AFTER_MS + 50));
 
-    resolveSubject(ctx);
+    const secondSubject = resolveSubject(ctx);
 
     expect(entrySubject!.graph()).toBe(g1);
+    expect(secondSubject).toBeDefined();
+    expect(secondSubject).not.toBe(entrySubject);
+    expect(secondSubject!.graph()).not.toBe(g1);
   });
 
   it("does not reuse across parse objects", () => {
