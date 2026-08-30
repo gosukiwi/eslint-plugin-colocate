@@ -455,6 +455,79 @@ describe("entry rule", () => {
     ]);
   });
 
+  it("reports a named door that re-exports a sibling", async () => {
+    const messages = await lintEntryFixture("entry-named-door-reexport", {
+      root: "src",
+    });
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 1,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("reports a named door that re-exports with export * from", async () => {
+    const messages = await lintEntryFixture("entry-named-door-reexport-star", {
+      root: "src",
+    });
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 1,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("reports a named door that re-exports with export * as ns from", async () => {
+    const messages = await lintEntryFixture(
+      "entry-named-door-reexport-star-as",
+      { root: "src" },
+    );
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 1,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("reports a named door that re-exports a nested in-graph file", async () => {
+    const messages = await lintEntryFixture(
+      "entry-named-door-reexport-nested",
+      { root: "src" },
+    );
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 1,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/nested/deep.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("allows an index door to re-export siblings", async () => {
+    const messages = await lintEntryFixture("entry-index-reexport-ok", {
+      root: "src",
+    });
+    expect(messages).toEqual([]);
+  });
+
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
     "stays silent when the importer is linted through a wrong-case path",
     async () => {
