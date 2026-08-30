@@ -82,8 +82,13 @@ describe("ownership rule", () => {
     ]);
   });
 
-  it("does not report mismatchedEntry for a barrel in the root directory", async () => {
+  it("does not report a barrel in the root directory", async () => {
     const messages = await lintFixture("root-barrel", { root: "src" });
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("does not report nested one-file door layout", async () => {
+    const messages = await lintFixture("nested-one-file-door");
     expect(sortMessages(messages)).toEqual([]);
   });
 
@@ -93,18 +98,14 @@ describe("ownership rule", () => {
     ).rejects.toThrow();
   });
 
-  it("reports mismatchedEntry when index re-exports one module and outside imports use the barrel", async () => {
+  it("does not report when index re-exports one module and outside imports use the barrel", async () => {
     const messages = await lintFixture("mismatch-index");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("reports mismatchedEntry when index re-exports one module with a multiline export", async () => {
+  it("does not report when index re-exports one module with a multiline export", async () => {
     const messages = await lintFixture("mismatch-index-multiline");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
   it("does not report mismatchedEntry for a namespace barrel with multiple re-exports", async () => {
@@ -403,51 +404,39 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("reports mismatchedEntry when one sibling is re-exported as both value and type", async () => {
+  it("does not report when one sibling is re-exported as both value and type", async () => {
     const messages = await lintFixture("type-split-barrel");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("reports mismatchedEntry when the single re-export is written through a tsconfig alias", async () => {
+  it("does not report when the single re-export is written through a tsconfig alias", async () => {
     const messages = await lintFixture("alias-mismatch-index");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("reports mismatchedEntry when an index re-exports itself through an alias beside one sibling", async () => {
+  it("does not report when an index re-exports itself through an alias beside one sibling", async () => {
     const messages = await lintFixture("alias-self-reexport-barrel");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("counts two spellings of one re-exported module as one module", async () => {
+  it("does not report when two spellings of one re-exported module are used", async () => {
     const messages = await lintFixture("extension-split-barrel");
-    expect(sortMessages(messages)).toEqual([
-      { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-    ]);
+    expect(sortMessages(messages)).toEqual([]);
   });
 
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
-    "reports mismatchedEntry when the single re-export's case does not match the file on disk",
+    "does not report when the single re-export's case does not match the file on disk",
     async () => {
       const messages = await lintFixture("wrong-case-reexport");
-      expect(sortMessages(messages)).toEqual([
-        { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-      ]);
+      expect(sortMessages(messages)).toEqual([]);
     },
   );
 
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
-    "counts a value+type split written with mixed casing as one sibling",
+    "does not report a value+type split written with mixed casing",
     async () => {
       const messages = await lintFixture("wrong-case-type-split-barrel");
-      expect(sortMessages(messages)).toEqual([
-        { file: "src/Foo/index.ts", messageId: "mismatchedEntry" },
-      ]);
+      expect(sortMessages(messages)).toEqual([]);
     },
   );
 
