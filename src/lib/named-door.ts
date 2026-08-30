@@ -42,6 +42,33 @@ function stringLiteralText(node: ts.Node | undefined): string | undefined {
   return undefined;
 }
 
+function peelValueExpression(node: ts.Expression): ts.Expression {
+  let current = node;
+  for (;;) {
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isAsExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isTypeAssertionExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isNonNullExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return current;
+  }
+}
+
 function isRealRequire(
   node: ts.CallExpression,
   requireIsCjs: boolean,
@@ -190,16 +217,26 @@ export function namedDoorReexports(
 
     if (ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
-        if (
-          declaration.initializer !== undefined &&
-          ts.isCallExpression(declaration.initializer) &&
-          isRealRequire(declaration.initializer, requireIsCjs)
-        ) {
-          const target = resolveInGraph(
-            stringLiteralText(declaration.initializer.arguments[0]) ?? "",
-          );
-          if (target !== undefined) {
-            bindRequireNames(declaration.name, target, origins);
+        if (declaration.initializer !== undefined) {
+          const peeled = peelValueExpression(declaration.initializer);
+          if (
+            ts.isCallExpression(peeled) &&
+            isRealRequire(peeled, requireIsCjs)
+          ) {
+            const target = resolveInGraph(
+              stringLiteralText(peeled.arguments[0]) ?? "",
+            );
+            if (target !== undefined) {
+              bindRequireNames(declaration.name, target, origins);
+            }
+          } else if (
+            ts.isIdentifier(declaration.name) &&
+            ts.isIdentifier(peeled)
+          ) {
+            const target = origins.get(peeled.text);
+            if (target !== undefined) {
+              origins.set(declaration.name.text, target);
+            }
           }
         }
       }
@@ -232,19 +269,15 @@ export function namedDoorReexports(
     }
 
     if (ts.isExportAssignment(node)) {
-      if (ts.isIdentifier(node.expression)) {
-        reportIdentityExport(node, origins.get(node.expression.text));
+      const peeled = peelValueExpression(node.expression);
+      if (ts.isIdentifier(peeled)) {
+        reportIdentityExport(node, origins.get(peeled.text));
         return;
       }
-      if (
-        ts.isCallExpression(node.expression) &&
-        isRealRequire(node.expression, requireIsCjs)
-      ) {
+      if (ts.isCallExpression(peeled) && isRealRequire(peeled, requireIsCjs)) {
         reportIdentityExport(
           node,
-          resolveInGraph(
-            stringLiteralText(node.expression.arguments[0]) ?? "",
-          ),
+          resolveInGraph(stringLiteralText(peeled.arguments[0]) ?? ""),
         );
       }
       return;
@@ -269,17 +302,18 @@ export function namedDoorReexports(
       for (const declaration of node.declarationList.declarations) {
         let target: string | undefined;
         if (declaration.initializer !== undefined) {
+          const peeled = peelValueExpression(declaration.initializer);
           if (
             ts.isIdentifier(declaration.name) &&
-            ts.isIdentifier(declaration.initializer)
+            ts.isIdentifier(peeled)
           ) {
-            target = origins.get(declaration.initializer.text);
+            target = origins.get(peeled.text);
           } else if (
-            ts.isCallExpression(declaration.initializer) &&
-            isRealRequire(declaration.initializer, requireIsCjs)
+            ts.isCallExpression(peeled) &&
+            isRealRequire(peeled, requireIsCjs)
           ) {
             target = resolveInGraph(
-              stringLiteralText(declaration.initializer.arguments[0]) ?? "",
+              stringLiteralText(peeled.arguments[0]) ?? "",
             );
           }
         }
