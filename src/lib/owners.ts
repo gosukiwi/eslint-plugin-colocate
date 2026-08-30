@@ -20,28 +20,22 @@ export interface OwnershipContext {
   layerDirs: string[];
 }
 
-export interface ReExports {
-  local: string[];
-  total: number;
-}
-
-const reExportsByGraph = derivedFromGraph(() => new Map<string, ReExports>());
+const reExportsByGraph = derivedFromGraph(() => new Map<string, string[]>());
 
 function scanReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
-): ReExports {
+): string[] {
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
   const realIndex = safeRealpath(indexFile);
   if (content === undefined || realDir === undefined) {
-    return { local: [], total: 0 };
+    return [];
   }
   const sourceFile = parseSourceFile(indexFile, content);
   const settings = getGraphResolutionSettings(graph);
   const local = new Set<string>();
-  const modules = new Set<string>();
 
   const visit = (node: ts.Node): void => {
     if (
@@ -55,9 +49,8 @@ function scanReExports(
         resolved === undefined
           ? undefined
           : canonicalGraphPath(graph, resolved);
-      if (target === undefined || target !== realIndex) {
-        modules.add(target ?? specifier);
-        if (target !== undefined && path.dirname(target) === realDir) {
+      if (target !== undefined && target !== realIndex) {
+        if (path.dirname(target) === realDir) {
           local.add(target);
         }
       }
@@ -66,14 +59,14 @@ function scanReExports(
   };
 
   visit(sourceFile);
-  return { local: [...local], total: modules.size };
+  return [...local];
 }
 
 export function collectReExports(
   indexFile: string,
   dir: string,
   graph: Graph,
-): ReExports {
+): string[] {
   const key = indexFile + "\0" + dir;
   const perGraph = reExportsByGraph(graph);
   const cached = perGraph.get(key);
@@ -92,7 +85,7 @@ function isNamespaceBarrel(filePath: string, graph: Graph): boolean {
     return false;
   }
   return (
-    collectReExports(filePath, path.dirname(filePath), graph).local.length >= 2
+    collectReExports(filePath, path.dirname(filePath), graph).length >= 2
   );
 }
 

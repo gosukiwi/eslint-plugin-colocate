@@ -14,12 +14,11 @@ function scanReExports(indexFile, dir, graph) {
     const realDir = safeRealpath(dir);
     const realIndex = safeRealpath(indexFile);
     if (content === undefined || realDir === undefined) {
-        return { local: [], total: 0 };
+        return [];
     }
     const sourceFile = parseSourceFile(indexFile, content);
     const settings = getGraphResolutionSettings(graph);
     const local = new Set();
-    const modules = new Set();
     const visit = (node) => {
         if (ts.isExportDeclaration(node) &&
             node.moduleSpecifier !== undefined &&
@@ -29,9 +28,8 @@ function scanReExports(indexFile, dir, graph) {
             const target = resolved === undefined
                 ? undefined
                 : canonicalGraphPath(graph, resolved);
-            if (target === undefined || target !== realIndex) {
-                modules.add(target ?? specifier);
-                if (target !== undefined && path.dirname(target) === realDir) {
+            if (target !== undefined && target !== realIndex) {
+                if (path.dirname(target) === realDir) {
                     local.add(target);
                 }
             }
@@ -39,7 +37,7 @@ function scanReExports(indexFile, dir, graph) {
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return { local: [...local], total: modules.size };
+    return [...local];
 }
 export function collectReExports(indexFile, dir, graph) {
     const key = indexFile + "\0" + dir;
@@ -57,7 +55,7 @@ function isNamespaceBarrel(filePath, graph) {
     if (basename !== "index") {
         return false;
     }
-    return (collectReExports(filePath, path.dirname(filePath), graph).local.length >= 2);
+    return (collectReExports(filePath, path.dirname(filePath), graph).length >= 2);
 }
 function isOwnerEntryFile(file, dir, graph) {
     if (path.dirname(file) !== dir) {
