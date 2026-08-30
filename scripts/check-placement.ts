@@ -215,6 +215,9 @@ for (let n = 0; n < CONFIGS; n += 1) {
     }
 
     for (const report of entry) {
+      if (report.messageId !== "reachesPastEntry") {
+        continue;
+      }
       entryReports += 1;
       const reason = unsatisfiableEntryReason(report);
       if (reason !== undefined) {

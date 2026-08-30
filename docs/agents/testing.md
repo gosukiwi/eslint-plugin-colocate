@@ -29,6 +29,7 @@ SEED=<n> npm run check:placement
 - `ownership.test.ts` — rule findings against fixtures
 - `entry.test.ts` — entry-rule findings against fixtures, including its degradation cases (missing root, missing file, unresolvable specifier) rather than in `robustness.test.ts`. Several `expect([])` assertions have no in-file positive control (the unresolvable-specifier and not-on-disk cases, plus `entry-dts-target`, both `entry-require-redeclared*` fixtures, `entry-require-nested-scope`, and the wrong-case-importer test); only the `ignore` pair does. They are not vacuous — each was verified by mutation to fail when the logic it pins is reverted, and `collectRuleMessages` throws on a parse error — but do not read a bare `[]` as evidence the rule ran.
 - `gates.test.ts` — `isEntryFile`, `getGates`, `findCrossedGate` unit tests
+- `named-door.test.ts` — `isNamedDoor` unit tests
 - `harness.test.ts` — the shared fixture-lint helper itself (two-key ownership shape only; it never calls `lintEntryFixture`, so the per-rule/per-import entry shape is *not* covered here)
 - `graph.test.ts` / `walk.test.ts` — resolution, walk, skip rules, temp trees + symlinks; `graph.test.ts` also covers importer recovery when the specifier and on-disk path differ only by NFC/NFD, using the same filesystem probe as the `collectReExports` case in `owners.test.ts`
 - `parse.test.ts` — extractSpecifiers: type-position import(), no-substitution templates, and spellings that must not become edges

@@ -17,6 +17,7 @@ src/lib/resolve.ts        tsconfig load, `paths` aliasing, specifier resolution
 src/lib/graph.ts          Graph, build, membership, path canonicalisation
 src/lib/graph-cache.ts    one graph per process, revalidated once per lint pass
 src/lib/gates.ts          entry detection, gate map, crossed-gate lookup
+src/lib/named-door.ts     named-door identity re-export detection
 src/lib/owners.ts         owners, shells, layers, colocation
 src/lib/findings.ts       what `ownership` reports, in report order
 src/lib/paths.ts          is-this-path-inside-that-directory, one copy only

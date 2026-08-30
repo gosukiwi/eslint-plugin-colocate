@@ -121,7 +121,7 @@ For a longer bootstrap chain (`main → router → App → pages/...`), or a she
 
 ## What it reports
 
-*This covers `colocate/ownership`'s findings. `colocate/entry` reports a single finding, `reachesPastEntry` — see [The entry rule](#the-entry-rule).*
+*This covers `colocate/ownership`'s findings. `colocate/entry` reports `reachesPastEntry` and `namedDoorReexport` — see [The entry rule](#the-entry-rule).*
 
 | message | meaning | usual fix |
 | --- | --- | --- |
@@ -184,6 +184,8 @@ import { loadThread } from "../pages/Inbox/Inbox.ts";
 **A directory with no entry file is not a module.** It gates nothing, and the rule demands nothing of it — a folder of independent siblings (`lib/`, `tabs/`) stays exactly as it is. The rule is a ratchet: add a door when a directory deserves one, and from then on it's the only way in.
 
 **Unlike `ownership`, entry points get no exemption.** A file nothing imports still may not reach past a door; a shell burrowing into a feature's internals is exactly the finding worth having.
+
+**Two kinds of door.** A file named after its folder (`Foo/Foo.ts`) is the shortcut door: the public module is that file, and it may export only what it declares. `index.ts` is the barrel door: the public surface may come from more than one file. `colocate/entry` reports `namedDoorReexport` when a named door identity-re-exports another source file in the graph — the usual fix is to add or use `index.ts`, or stop re-exporting. Re-exporting siblings from `index` is allowed; type-only re-exports are not this finding. Reaching past a door is still `reachesPastEntry` (unchanged).
 
 Options are `root` and `ignore`, with the same meaning as `ownership`. There is no `layers` option — layers are about placement, and say nothing about access. Do not ignore an entry file: that removes the door, and reaching into that folder stops being an error. There is no autofix: rewriting a specifier would produce code that doesn't compile whenever the door doesn't already re-export the symbol, so widening the door is left to the user.
 
