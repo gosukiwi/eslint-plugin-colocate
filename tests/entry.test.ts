@@ -744,6 +744,68 @@ describe("entry rule", () => {
     ]);
   });
 
+  it("reports a named door that exports a const bound to require", async () => {
+    const messages = await lintEntryFixture(
+      "entry-named-door-export-const-require",
+      { root: "src" },
+    );
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 1,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("reports a named door that identity-exports a renamed require binding", async () => {
+    const messages = await lintEntryFixture("entry-named-door-require-rename", {
+      root: "src",
+    });
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 2,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("reports a named door that exports a later const declarator alias", async () => {
+    const messages = await lintEntryFixture(
+      "entry-named-door-export-const-multi",
+      { root: "src" },
+    );
+    expect(pick(messages, "file", "line", "messageId")).toEqual([
+      {
+        file: "src/Foo/Foo.ts",
+        line: 3,
+        messageId: "namedDoorReexport",
+      },
+    ]);
+    expect(messages[0]?.message).toBe(
+      "Named door 'Foo/Foo.ts' re-exports 'Foo/sib.ts'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
+    );
+  });
+
+  it("allows a named door that wraps a nested require before export", async () => {
+    const messages = await lintEntryFixture(
+      "entry-named-door-nested-require-ok",
+      { root: "src" },
+    );
+    expect(
+      pick(messages, "file", "line", "messageId").filter(
+        (message) => message.messageId === "namedDoorReexport",
+      ),
+    ).toEqual([]);
+  });
+
   it.skipIf(ts.sys.useCaseSensitiveFileNames)(
     "stays silent when the importer is linted through a wrong-case path",
     async () => {

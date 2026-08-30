@@ -69,15 +69,7 @@ function bindRequireNames(
       if (ts.isOmittedExpression(element)) {
         continue;
       }
-      const localName =
-        (element.propertyName !== undefined &&
-        ts.isIdentifier(element.propertyName)
-          ? element.propertyName.text
-          : undefined) ??
-        (ts.isIdentifier(element.name) ? element.name.text : undefined);
-      if (localName !== undefined) {
-        origins.set(localName, target);
-      }
+      bindRequireNames(element.name, target, origins);
     }
   }
 }
@@ -256,25 +248,34 @@ export function namedDoorReexports(
 
     if (hasExportModifier(node) && ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
+        let target: string | undefined;
         if (
           ts.isIdentifier(declaration.name) &&
-          declaration.initializer !== undefined &&
-          ts.isIdentifier(declaration.initializer)
+          declaration.initializer !== undefined
         ) {
-          reportIdentityExport(node, origins.get(declaration.initializer.text));
+          if (ts.isIdentifier(declaration.initializer)) {
+            target = origins.get(declaration.initializer.text);
+          } else if (
+            ts.isCallExpression(declaration.initializer) &&
+            isRealRequire(declaration.initializer, requireIsCjs)
+          ) {
+            target = resolveInGraph(
+              stringLiteralText(declaration.initializer.arguments[0]) ?? "",
+            );
+          }
+        }
+        if (target !== undefined) {
+          reportIdentityExport(node, target);
           return;
         }
       }
     }
   };
 
-  const visit = (node: ts.Node, shadowed: boolean): void => {
-    const requireIsCjs = !(shadowed || scopeBindsRequire(node));
-    collectOrigins(node, requireIsCjs);
-    checkExports(node, requireIsCjs);
-    ts.forEachChild(node, (child) => visit(child, !requireIsCjs));
-  };
-
-  visit(sourceFile, false);
+  const requireIsCjs = !scopeBindsRequire(sourceFile);
+  for (const statement of sourceFile.statements) {
+    collectOrigins(statement, requireIsCjs);
+    checkExports(statement, requireIsCjs);
+  }
   return results;
 }
