@@ -26,12 +26,7 @@ const resolvedLintRoots = new Map<
   { rootDir: string; realRootDir: string }
 >();
 
-const subjectsByParse = new WeakMap<
-  object,
-  Map<string, Subject | undefined>
->();
-
-const subjectGraphs = new WeakMap<Subject, () => void>();
+const fileRealpathsByParse = new WeakMap<object, string | undefined>();
 
 export function resolvedLintRoot(
   cwd: string,
@@ -54,60 +49,50 @@ export function resolvedLintRoot(
   return resolved;
 }
 
-function subjectOptionsKey(root: string, ignore: string[]): string {
-  return root + "\0" + ignore.join("\0");
-}
-
 export function resolveSubject(context: Rule.RuleContext): Subject | undefined {
   const options = (context.options[0] ?? {}) as SubjectOptions;
   const root = options.root ?? ".";
   const ignore = options.ignore ?? [];
-  const key = subjectOptionsKey(root, ignore);
 
-  let byOptions = subjectsByParse.get(context.sourceCode);
-  if (byOptions === undefined) {
-    byOptions = new Map();
-    subjectsByParse.set(context.sourceCode, byOptions);
-  }
-  if (byOptions.has(key)) {
-    const cached = byOptions.get(key);
-    if (cached !== undefined) {
-      subjectGraphs.get(cached)?.();
-    }
-    return cached;
+  if (!isSourceFile(context.filename)) {
+    return undefined;
   }
 
-  let subject: Subject | undefined;
-
-  if (isSourceFile(context.filename)) {
-    const resolved = resolvedLintRoot(context.cwd, root);
-    const file = safeRealpath(context.filename);
-    if (
-      resolved !== undefined &&
-      file !== undefined &&
-      isInGraphScope(path.relative(resolved.realRootDir, file), ignore)
-    ) {
-      const { rootDir, realRootDir } = resolved;
-      let graph: Graph | undefined;
-      subject = {
-        rootDir,
-        realRootDir,
-        file,
-        ignore,
-        graph: () =>
-          (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
-        covers: (filePath) =>
-          isSourceFile(filePath) &&
-          isInGraphScope(path.relative(realRootDir, filePath), ignore),
-        display: (filePath) =>
-          path.relative(realRootDir, filePath).split(path.sep).join("/"),
-      };
-      subjectGraphs.set(subject, () => {
-        graph = undefined;
-      });
-    }
+  const resolved = resolvedLintRoot(context.cwd, root);
+  if (resolved === undefined) {
+    return undefined;
   }
 
-  byOptions.set(key, subject);
-  return subject;
+  const parse = context.sourceCode;
+  let file: string | undefined;
+  if (fileRealpathsByParse.has(parse)) {
+    file = fileRealpathsByParse.get(parse);
+  } else {
+    file = safeRealpath(context.filename);
+    fileRealpathsByParse.set(parse, file);
+  }
+
+  if (file === undefined) {
+    return undefined;
+  }
+
+  const { rootDir, realRootDir } = resolved;
+  if (!isInGraphScope(path.relative(realRootDir, file), ignore)) {
+    return undefined;
+  }
+
+  let graph: Graph | undefined;
+  return {
+    rootDir,
+    realRootDir,
+    file,
+    ignore,
+    graph: () =>
+      (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
+    covers: (filePath) =>
+      isSourceFile(filePath) &&
+      isInGraphScope(path.relative(realRootDir, filePath), ignore),
+    display: (filePath) =>
+      path.relative(realRootDir, filePath).split(path.sep).join("/"),
+  };
 }

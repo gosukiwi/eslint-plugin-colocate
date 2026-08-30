@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Rule } from "eslint";
 import { afterEach, describe, expect, it } from "vitest";
+import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
 import { resolveSubject, resolvedLintRoot } from "../src/lib/subject.js";
 
 const created: string[] = [];
@@ -43,7 +44,7 @@ function writeSrcTree(base: string): void {
 }
 
 describe("resolveSubject", () => {
-  it("reuses one Subject for the same parse object and options", () => {
+  it("same parse and options still share file and root paths", () => {
     const base = tempDir("subject-reuse-");
     writeSrcTree(base);
     const cwd = base;
@@ -57,7 +58,33 @@ describe("resolveSubject", () => {
 
     expect(subjectA).toBeDefined();
     expect(subjectB).toBeDefined();
-    expect(subjectB).toBe(subjectA);
+    expect(subjectB).not.toBe(subjectA);
+    expect(subjectB!.file).toEqual(subjectA!.file);
+    expect(subjectB!.rootDir).toEqual(subjectA!.rootDir);
+    expect(subjectB!.realRootDir).toEqual(subjectA!.realRootDir);
+  });
+
+  it("keeps the first Subject's graph after a second resolveSubject on the same parse", async () => {
+    const base = tempDir("subject-graph-");
+    writeSrcTree(base);
+    const cwd = base;
+    const filename = path.join(base, "src/a.ts");
+    const token = {};
+    const ctx = context(filename, cwd, [{ root: "src" }], token);
+
+    const entrySubject = resolveSubject(ctx);
+    expect(entrySubject).toBeDefined();
+    const g1 = entrySubject!.graph();
+
+    fs.writeFileSync(
+      path.join(base, "src/b.ts"),
+      "export const b = 2;\n",
+    );
+    await new Promise((r) => setTimeout(r, REVALIDATE_AFTER_MS + 50));
+
+    resolveSubject(ctx);
+
+    expect(entrySubject!.graph()).toBe(g1);
   });
 
   it("does not reuse across parse objects", () => {
