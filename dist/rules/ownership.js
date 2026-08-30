@@ -23,7 +23,6 @@ const rule = {
             sharedTooHigh: "File is imported by multiple owners but sits above their common ancestor directory.",
             sharedInsideOwner: "File is imported by multiple owners but sits inside a single owner's folder.",
             singletonFolder: "Directory contains a single source file with no companion CSS; colocate or flatten the file.",
-            mismatchedEntry: "Index re-exports a single local module but outside imports use this barrel instead of the named entry file.",
         },
     },
     create(context) {

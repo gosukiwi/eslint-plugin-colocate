@@ -1,7 +1,6 @@
 import path from "node:path";
 import { safeReaddir, safeStat } from "./fs-safe.js";
-import { graphFilesInDir, graphHasFile } from "./graph.js";
-import { collectReExports, getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
+import { getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
 import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
 function isStylesheet(filePath) {
@@ -58,40 +57,6 @@ function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
     const fileBasename = path.basename(filename, path.extname(filename));
     return fileBasename === dirName || fileBasename === "index";
 }
-function isMismatchedEntry(indexFile, ctx) {
-    const dir = path.dirname(indexFile);
-    if (dir === ctx.rootDir) {
-        return false;
-    }
-    const filesInDir = graphFilesInDir(ctx.graph, dir);
-    const outsideImporters = new Set();
-    let allOutsideImportsTargetIndex = true;
-    for (const fileInDir of filesInDir) {
-        const importers = ctx.graph.importers.get(fileInDir) ?? [];
-        for (const importer of importers) {
-            const importerDir = path.dirname(importer);
-            if (importerDir === dir) {
-                continue;
-            }
-            outsideImporters.add(importer);
-            if (fileInDir !== indexFile) {
-                allOutsideImportsTargetIndex = false;
-            }
-        }
-    }
-    if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
-        return false;
-    }
-    const { local, total } = collectReExports(indexFile, dir, ctx.graph);
-    if (local.length !== 1 || total !== 1) {
-        return false;
-    }
-    if (!graphHasFile(ctx.graph, local[0])) {
-        return false;
-    }
-    const target = local[0];
-    return path.basename(target, path.extname(target)) !== path.basename(dir);
-}
 export function ownershipFindings(subject, cwd, layers) {
     const { realRootDir: rootDir, file, ignore } = subject;
     const dir = path.dirname(file);
@@ -112,10 +77,6 @@ export function ownershipFindings(subject, cwd, layers) {
     const sharedIssue = getSharedColocationIssue(file, ctx);
     if (sharedIssue !== undefined) {
         findings.push(sharedIssue);
-    }
-    const lintedBase = path.basename(subject.lintedPath, path.extname(subject.lintedPath));
-    if (lintedBase === "index" && isMismatchedEntry(file, ctx)) {
-        findings.push("mismatchedEntry");
     }
     return findings;
 }

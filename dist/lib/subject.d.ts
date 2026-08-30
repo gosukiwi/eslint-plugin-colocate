@@ -4,7 +4,6 @@ export interface Subject {
     readonly rootDir: string;
     readonly realRootDir: string;
     readonly file: string;
-    readonly lintedPath: string;
     readonly ignore: string[];
     graph(): Graph;
     covers(filePath: string): boolean;

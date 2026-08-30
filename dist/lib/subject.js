@@ -23,7 +23,6 @@ export function resolveSubject(context) {
         rootDir,
         realRootDir,
         file,
-        lintedPath: context.filename,
         ignore,
         graph: () => (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
         covers: (filePath) => isSourceFile(filePath) &&
