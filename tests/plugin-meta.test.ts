@@ -22,7 +22,6 @@ describe("plugin surface", () => {
     expect(rule.meta?.type).toBe("problem");
     expect(rule.meta?.docs?.url).toMatch(/^https:\/\//);
     expect(Object.keys(rule.meta?.messages ?? {}).sort()).toEqual([
-      "mismatchedEntry",
       "privateOutsideOwner",
       "sharedInsideOwner",
       "sharedTooHigh",
