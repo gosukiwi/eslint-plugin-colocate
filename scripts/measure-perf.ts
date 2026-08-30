@@ -162,7 +162,6 @@ function makeSubject(file: string, rootDir: string, graph: Graph): Subject {
     rootDir,
     realRootDir: rootDir,
     file,
-    lintedPath: file,
     ignore: [],
     graph: () => graph,
     covers: (filePath) => graph.files.includes(filePath),

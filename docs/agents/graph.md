@@ -22,7 +22,7 @@ Follow while the real path stays inside `root`. Outside-root targets stay out of
 
 ## Case and normalisation
 
-Case-insensitive disks: recover import specifiers that differ in case from the on-disk path. Unicode NFC/NFD differences are recovered too, on every platform. Both recoveries are `canonicalGraphPath`, and it is applied in two places: `entry` (importer and target), and `collectReExports` in `owners.ts` (each resolved re-export target). It is **not** applied everywhere a resolved path meets the graph — `findings.ts` still compares against the un-canonicalised linted directory, which is unreachable today only because a wrong-case linted index finds no `filesInDir` and returns before the re-export scan. Do not read the two call sites as a general rule.
+Case-insensitive disks: recover import specifiers that differ in case from the on-disk path. Unicode NFC/NFD differences are recovered too, on every platform. Both recoveries are `canonicalGraphPath`, and it is applied in two places: `entry` (importer and target), and `collectReExports` in `owners.ts` (each resolved re-export target). It is **not** applied everywhere a resolved path meets the graph. Do not read the two call sites as a general rule.
 
 The graph's own **edge index** uses the same fold: `buildGraphFromFiles` recovers a resolved target through the folded-path map `canonicalGraphPath` uses (`foldGraphPath`: NFC on every platform, lower-case only when the filesystem ignores case), built on every platform, with exact `graph.files` membership first. `collectReExports` and `graph.importers` now agree on an NFC/NFD mismatch. Config/ESLint **paths** (`root`, linted filename) stay case-sensitive — `root: "SRC"` when the dir is `src` produces no findings.
 

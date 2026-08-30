@@ -10,7 +10,6 @@ export interface Subject {
   readonly rootDir: string;
   readonly realRootDir: string;
   readonly file: string;
-  readonly lintedPath: string;
   readonly ignore: string[];
   graph(): Graph;
   covers(filePath: string): boolean;
@@ -46,7 +45,6 @@ export function resolveSubject(context: Rule.RuleContext): Subject | undefined {
     rootDir,
     realRootDir,
     file,
-    lintedPath: context.filename,
     ignore,
     graph: () => (graph ??= getGraph(rootDir, ignore, file, context.sourceCode)),
     covers: (filePath) =>
