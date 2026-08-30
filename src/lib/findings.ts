@@ -1,5 +1,7 @@
 import path from "node:path";
+import { derivedFromGraph } from "./derived.js";
 import { safeReaddir, safeStat } from "./fs-safe.js";
+import type { Graph } from "./graph.js";
 import {
   getSharedColocationIssue,
   isPrivateOutsideOwner,
@@ -13,6 +15,15 @@ import {
   SKIP_DIRS,
 } from "./scope.js";
 import type { Subject } from "./subject.js";
+
+export interface SingletonDirectoryStats {
+  sourceCount: number;
+  hasStylesheet: boolean;
+}
+
+const singletonStatsByGraph = derivedFromGraph(
+  () => new Map<string, SingletonDirectoryStats>(),
+);
 
 export type OwnershipFinding =
   | "singletonFolder"
@@ -51,6 +62,9 @@ function countSourceFilesRecursive(
         continue;
       }
       sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
+      if (sourceCount > 1) {
+        return sourceCount;
+      }
       continue;
     }
 
@@ -63,10 +77,32 @@ function countSourceFilesRecursive(
 
     if (isSourceFile(fullPath) && !isTestFile(relPath)) {
       sourceCount += 1;
+      if (sourceCount > 1) {
+        return sourceCount;
+      }
     }
   }
 
   return sourceCount;
+}
+
+export function singletonDirectoryStats(
+  dir: string,
+  rootDir: string,
+  ignore: string[],
+  graph: Graph,
+): SingletonDirectoryStats {
+  const cache = singletonStatsByGraph(graph);
+  const cached = cache.get(dir);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const sourceCount = countSourceFilesRecursive(dir, rootDir, ignore);
+  const hasStylesheet =
+    sourceCount === 1 && hasCompanionStylesheet(dir);
+  const stats: SingletonDirectoryStats = { sourceCount, hasStylesheet };
+  cache.set(dir, stats);
+  return stats;
 }
 
 function hasCompanionStylesheet(dir: string): boolean {
@@ -85,11 +121,15 @@ function isSingletonWrapperDirectory(
   filename: string,
   rootDir: string,
   ignore: string[],
+  graph: Graph,
 ): boolean {
-  if (
-    countSourceFilesRecursive(dir, rootDir, ignore) !== 1 ||
-    hasCompanionStylesheet(dir)
-  ) {
+  const { sourceCount, hasStylesheet } = singletonDirectoryStats(
+    dir,
+    rootDir,
+    ignore,
+    graph,
+  );
+  if (sourceCount !== 1 || hasStylesheet) {
     return false;
   }
 
@@ -115,7 +155,7 @@ export function ownershipFindings(
 
   if (
     dir !== rootDir &&
-    isSingletonWrapperDirectory(dir, file, rootDir, ignore)
+    isSingletonWrapperDirectory(dir, file, rootDir, ignore, graph)
   ) {
     findings.push("singletonFolder");
   }
