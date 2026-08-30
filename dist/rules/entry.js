@@ -1,6 +1,7 @@
 import path from "node:path";
 import { findCrossedGate } from "../lib/gates.js";
 import { canonicalGraphPath, getGraphResolutionSettings } from "../lib/graph.js";
+import { isNamedDoor, namedDoorReexports } from "../lib/named-door.js";
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
 import { resolveSubject } from "../lib/subject.js";
@@ -46,6 +47,7 @@ const rule = {
             },
         ],
         messages: {
+            namedDoorReexport: "Named door '{{door}}' re-exports '{{target}}'; use an index.ts in the same folder for a multi-file public surface, or export only what this file declares.",
             reachesPastEntry: "'{{target}}' is inside module '{{module}}'; import it through '{{entry}}', or move it out of '{{module}}' if it is not part of it.",
         },
     },
@@ -54,6 +56,33 @@ const rule = {
         if (subject === undefined) {
             return {};
         }
+        const reexportsByPos = isNamedDoor(subject.file)
+            ? new Map(namedDoorReexports(subject.file, subject.graph(), context.sourceCode.getText()).map((reexport) => [
+                reexport.pos,
+                reexport.target,
+            ]))
+            : undefined;
+        const reportNamedDoorReexport = (node) => {
+            if (reexportsByPos === undefined) {
+                return;
+            }
+            const start = node.range?.[0];
+            if (start === undefined) {
+                return;
+            }
+            const target = reexportsByPos.get(start);
+            if (target === undefined) {
+                return;
+            }
+            context.report({
+                node,
+                messageId: "namedDoorReexport",
+                data: {
+                    door: subject.display(subject.file),
+                    target: subject.display(target),
+                },
+            });
+        };
         const check = (source) => {
             if (source === null || source === undefined) {
                 return;
@@ -78,14 +107,24 @@ const rule = {
         };
         return {
             ImportDeclaration: (node) => check(node.source),
-            ExportNamedDeclaration: (node) => check(node.source),
-            ExportAllDeclaration: (node) => check(node.source),
+            ExportNamedDeclaration: (node) => {
+                check(node.source);
+                reportNamedDoorReexport(node);
+            },
+            ExportAllDeclaration: (node) => {
+                check(node.source);
+                reportNamedDoorReexport(node);
+            },
+            ExportDefaultDeclaration: (node) => {
+                reportNamedDoorReexport(node);
+            },
             ImportExpression: (node) => check(node.source),
             TSImportType: (node) => check(node.source ?? node.argument?.literal),
             TSImportEqualsDeclaration: (node) => {
                 if (node.moduleReference?.type === "TSExternalModuleReference") {
                     check(node.moduleReference.expression);
                 }
+                reportNamedDoorReexport(node);
             },
             CallExpression: (node) => {
                 if (node.callee.type !== "Identifier" ||

@@ -17,7 +17,7 @@ function scriptKindFromFileName(fileName) {
 export function parseSourceFile(fileName, content) {
     return ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, false, scriptKindFromFileName(fileName));
 }
-function stringLiteralText(node) {
+export function stringLiteralText(node) {
     if (node !== undefined && ts.isStringLiteralLike(node)) {
         return node.text;
     }
