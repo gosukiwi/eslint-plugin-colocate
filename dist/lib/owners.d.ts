@@ -4,11 +4,7 @@ export interface OwnershipContext {
     rootDir: string;
     layerDirs: string[];
 }
-export interface ReExports {
-    local: string[];
-    total: number;
-}
-export declare function collectReExports(indexFile: string, dir: string, graph: Graph): ReExports;
+export declare function collectReExports(indexFile: string, dir: string, graph: Graph): string[];
 export interface Owner {
     kind: "folder" | "standalone";
     path: string;

@@ -1,8 +1,6 @@
 import path from "node:path";
 import { safeReaddir, safeStat } from "./fs-safe.js";
-import { graphFilesInDir, graphHasFile } from "./graph.js";
 import {
-  collectReExports,
   getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
@@ -20,8 +18,7 @@ export type OwnershipFinding =
   | "singletonFolder"
   | "privateOutsideOwner"
   | "sharedTooHigh"
-  | "sharedInsideOwner"
-  | "mismatchedEntry";
+  | "sharedInsideOwner";
 
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"] as const;
 
@@ -101,48 +98,6 @@ function isSingletonWrapperDirectory(
   return fileBasename === dirName || fileBasename === "index";
 }
 
-function isMismatchedEntry(indexFile: string, ctx: OwnershipContext): boolean {
-  const dir = path.dirname(indexFile);
-  if (dir === ctx.rootDir) {
-    return false;
-  }
-
-  const filesInDir = graphFilesInDir(ctx.graph, dir);
-
-  const outsideImporters = new Set<string>();
-  let allOutsideImportsTargetIndex = true;
-
-  for (const fileInDir of filesInDir) {
-    const importers = ctx.graph.importers.get(fileInDir) ?? [];
-    for (const importer of importers) {
-      const importerDir = path.dirname(importer);
-      if (importerDir === dir) {
-        continue;
-      }
-
-      outsideImporters.add(importer);
-      if (fileInDir !== indexFile) {
-        allOutsideImportsTargetIndex = false;
-      }
-    }
-  }
-
-  if (outsideImporters.size === 0 || !allOutsideImportsTargetIndex) {
-    return false;
-  }
-
-  const { local, total } = collectReExports(indexFile, dir, ctx.graph);
-  if (local.length !== 1 || total !== 1) {
-    return false;
-  }
-  if (!graphHasFile(ctx.graph, local[0])) {
-    return false;
-  }
-
-  const target = local[0];
-  return path.basename(target, path.extname(target)) !== path.basename(dir);
-}
-
 export function ownershipFindings(
   subject: Subject,
   cwd: string,
@@ -172,14 +127,6 @@ export function ownershipFindings(
   const sharedIssue = getSharedColocationIssue(file, ctx);
   if (sharedIssue !== undefined) {
     findings.push(sharedIssue);
-  }
-
-  const lintedBase = path.basename(
-    subject.lintedPath,
-    path.extname(subject.lintedPath),
-  );
-  if (lintedBase === "index" && isMismatchedEntry(file, ctx)) {
-    findings.push("mismatchedEntry");
   }
 
   return findings;

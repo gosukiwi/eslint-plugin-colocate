@@ -129,7 +129,6 @@ For a longer bootstrap chain (`main → router → App → pages/...`), or a she
 | `sharedTooHigh` | Several owners import it, and it sits above their common ancestor. | Move it down to the common ancestor. |
 | `sharedInsideOwner` | Several owners import it, and it sits inside one of theirs. | Hoist it to the common ancestor. |
 | `singletonFolder` | A directory holds a single source file named after the directory (or `index`), and no stylesheet beside it. | Flatten the directory, or colocate something with the file. |
-| `mismatchedEntry` | An `index` re-exports exactly one sibling under a different name, and outside code imports the barrel. | Rename the sibling after the folder and drop the barrel, or import the module directly. |
 
 `singletonFolder` looks for a companion stylesheet only in the same directory (`.css`, `.scss`, `.sass`, `.less`, `.styl`).
 

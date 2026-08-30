@@ -111,11 +111,10 @@ describe("collectReExports", () => {
     fs.writeFileSync(path.join(srcDir, "app.ts"), 'import "./Foo";\n');
 
     const graph = buildGraph(srcDir, []);
-    const { local, total } = collectReExports(indexPath, fooDir, graph);
+    const local = collectReExports(indexPath, fooDir, graph);
 
     expect(local).toEqual([siblingNfd]);
     expect(graph.files).toContain(local[0]);
-    expect(total).toBe(1);
   });
 
   it("memoises per graph and barrel path", () => {
@@ -149,12 +148,12 @@ describe("collectReExports", () => {
 
     const graph = buildGraph(srcDir, []);
     const first = collectReExports(indexPath, fooDir, graph);
-    expect(first.local).toEqual([path.join(fooDir, "A.ts")]);
+    expect(first).toEqual([path.join(fooDir, "A.ts")]);
 
     const second = collectReExports(indexPath, srcDir, graph);
 
     expect(second).not.toBe(first);
-    expect(second.local).not.toEqual(first.local);
+    expect(second).not.toEqual(first);
   });
 
   it("does not re-read the barrel after the file changes", () => {
@@ -170,7 +169,7 @@ describe("collectReExports", () => {
 
     const graph = buildGraph(srcDir, []);
     const first = collectReExports(indexPath, fooDir, graph);
-    expect(first.local).toEqual([path.join(fooDir, "A.ts")]);
+    expect(first).toEqual([path.join(fooDir, "A.ts")]);
 
     fs.writeFileSync(
       indexPath,
@@ -179,7 +178,7 @@ describe("collectReExports", () => {
     const second = collectReExports(indexPath, fooDir, graph);
 
     expect(second).toBe(first);
-    expect(second.local).toHaveLength(1);
+    expect(second).toHaveLength(1);
   });
 
   it("recomputes for a rebuilt graph", () => {
@@ -204,8 +203,8 @@ describe("collectReExports", () => {
     const second = collectReExports(indexPath, fooDir, graph2);
 
     expect(second).not.toBe(first);
-    expect(second.local).toHaveLength(2);
-    expect(second.local).toContain(path.join(fooDir, "A.ts"));
-    expect(second.local).toContain(path.join(fooDir, "B.ts"));
+    expect(second).toHaveLength(2);
+    expect(second).toContain(path.join(fooDir, "A.ts"));
+    expect(second).toContain(path.join(fooDir, "B.ts"));
   });
 });
