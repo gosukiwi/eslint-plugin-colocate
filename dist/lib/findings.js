@@ -1,7 +1,9 @@
 import path from "node:path";
+import { derivedFromGraph } from "./derived.js";
 import { safeReaddir, safeStat } from "./fs-safe.js";
 import { getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
 import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
+const singletonStatsByGraph = derivedFromGraph(() => new Map());
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
 function isStylesheet(filePath) {
     const basename = path.basename(filePath);
@@ -24,6 +26,9 @@ function countSourceFilesRecursive(dir, rootDir, ignore) {
                 continue;
             }
             sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
+            if (sourceCount > 1) {
+                return sourceCount;
+            }
             continue;
         }
         const isFile = entry.isSymbolicLink()
@@ -34,9 +39,24 @@ function countSourceFilesRecursive(dir, rootDir, ignore) {
         }
         if (isSourceFile(fullPath) && !isTestFile(relPath)) {
             sourceCount += 1;
+            if (sourceCount > 1) {
+                return sourceCount;
+            }
         }
     }
     return sourceCount;
+}
+export function singletonDirectoryStats(dir, rootDir, ignore, graph) {
+    const cache = singletonStatsByGraph(graph);
+    const cached = cache.get(dir);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const sourceCount = countSourceFilesRecursive(dir, rootDir, ignore);
+    const hasStylesheet = sourceCount === 1 && hasCompanionStylesheet(dir);
+    const stats = { sourceCount, hasStylesheet };
+    cache.set(dir, stats);
+    return stats;
 }
 function hasCompanionStylesheet(dir) {
     return safeReaddir(dir).some((entry) => {
@@ -48,9 +68,9 @@ function hasCompanionStylesheet(dir) {
             : entry.isFile();
     });
 }
-function isSingletonWrapperDirectory(dir, filename, rootDir, ignore) {
-    if (countSourceFilesRecursive(dir, rootDir, ignore) !== 1 ||
-        hasCompanionStylesheet(dir)) {
+function isSingletonWrapperDirectory(dir, filename, rootDir, ignore, graph) {
+    const { sourceCount, hasStylesheet } = singletonDirectoryStats(dir, rootDir, ignore, graph);
+    if (sourceCount !== 1 || hasStylesheet) {
         return false;
     }
     const dirName = path.basename(dir);
@@ -68,7 +88,7 @@ export function ownershipFindings(subject, cwd, layers) {
     };
     const findings = [];
     if (dir !== rootDir &&
-        isSingletonWrapperDirectory(dir, file, rootDir, ignore)) {
+        isSingletonWrapperDirectory(dir, file, rootDir, ignore, graph)) {
         findings.push("singletonFolder");
     }
     if (isPrivateOutsideOwner(file, ctx)) {
