@@ -31,7 +31,7 @@ export function parseSourceFile(
   );
 }
 
-function stringLiteralText(node: ts.Node | undefined): string | undefined {
+export function stringLiteralText(node: ts.Node | undefined): string | undefined {
   if (node !== undefined && ts.isStringLiteralLike(node)) {
     return node.text;
   }

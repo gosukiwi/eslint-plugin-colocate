@@ -8,7 +8,7 @@ import {
   graphHasFile,
   type Graph,
 } from "./graph.js";
-import { parseSourceFile } from "./parse.js";
+import { parseSourceFile, stringLiteralText } from "./parse.js";
 import { scopeBindsRequire } from "./require-binding.js";
 import { resolveSpecifier } from "./resolve.js";
 
@@ -33,13 +33,6 @@ function isValueReexport(node: ts.ExportDeclaration): boolean {
     return true;
   }
   return false;
-}
-
-function stringLiteralText(node: ts.Node | undefined): string | undefined {
-  if (node !== undefined && ts.isStringLiteralLike(node)) {
-    return node.text;
-  }
-  return undefined;
 }
 
 function peelValueExpression(node: ts.Expression): ts.Expression {
@@ -111,6 +104,27 @@ function hasExportModifier(node: ts.Node): boolean {
   );
 }
 
+function originFromBindingName(
+  name: ts.BindingName,
+  origins: Map<string, string>,
+): string | undefined {
+  if (ts.isIdentifier(name)) {
+    return origins.get(name.text);
+  }
+  if (ts.isObjectBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      const target = originFromBindingName(element.name, origins);
+      if (target !== undefined) {
+        return target;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function namedDoorReexports(
   filePath: string,
   graph: Graph,
@@ -144,15 +158,6 @@ export function namedDoorReexports(
     return target;
   };
 
-  const reportIdentityExport = (
-    node: ts.Node,
-    target: string | undefined,
-  ): void => {
-    if (target !== undefined) {
-      results.push({ target, pos: node.getStart(sourceFile) });
-    }
-  };
-
   const firstValueNamedExportTarget = (
     elements: ts.NodeArray<ts.ExportSpecifier>,
   ): string | undefined => {
@@ -179,22 +184,23 @@ export function namedDoorReexports(
       node.importClause !== undefined &&
       !node.importClause.isTypeOnly
     ) {
-      const target = resolveInGraph(
-        stringLiteralText(node.moduleSpecifier) ?? "",
-      );
-      if (target !== undefined) {
-        const clause = node.importClause;
-        if (clause.name !== undefined) {
-          origins.set(clause.name.text, target);
-        }
-        const bindings = clause.namedBindings;
-        if (bindings !== undefined) {
-          if (ts.isNamespaceImport(bindings)) {
-            origins.set(bindings.name.text, target);
-          } else if (ts.isNamedImports(bindings)) {
-            for (const element of bindings.elements) {
-              if (!element.isTypeOnly) {
-                origins.set(element.name.text, target);
+      const specifier = stringLiteralText(node.moduleSpecifier);
+      if (specifier !== undefined) {
+        const target = resolveInGraph(specifier);
+        if (target !== undefined) {
+          const clause = node.importClause;
+          if (clause.name !== undefined) {
+            origins.set(clause.name.text, target);
+          }
+          const bindings = clause.namedBindings;
+          if (bindings !== undefined) {
+            if (ts.isNamespaceImport(bindings)) {
+              origins.set(bindings.name.text, target);
+            } else if (ts.isNamedImports(bindings)) {
+              for (const element of bindings.elements) {
+                if (!element.isTypeOnly) {
+                  origins.set(element.name.text, target);
+                }
               }
             }
           }
@@ -207,11 +213,12 @@ export function namedDoorReexports(
       ts.isExternalModuleReference(node.moduleReference) &&
       ts.isIdentifier(node.name)
     ) {
-      const target = resolveInGraph(
-        stringLiteralText(node.moduleReference.expression) ?? "",
-      );
-      if (target !== undefined) {
-        origins.set(node.name.text, target);
+      const specifier = stringLiteralText(node.moduleReference.expression);
+      if (specifier !== undefined) {
+        const target = resolveInGraph(specifier);
+        if (target !== undefined) {
+          origins.set(node.name.text, target);
+        }
       }
     }
 
@@ -223,11 +230,12 @@ export function namedDoorReexports(
             ts.isCallExpression(peeled) &&
             isRealRequire(peeled, requireIsCjs)
           ) {
-            const target = resolveInGraph(
-              stringLiteralText(peeled.arguments[0]) ?? "",
-            );
-            if (target !== undefined) {
-              bindRequireNames(declaration.name, target, origins);
+            const specifier = stringLiteralText(peeled.arguments[0]);
+            if (specifier !== undefined) {
+              const target = resolveInGraph(specifier);
+              if (target !== undefined) {
+                bindRequireNames(declaration.name, target, origins);
+              }
             }
           } else if (
             ts.isIdentifier(declaration.name) &&
@@ -251,7 +259,9 @@ export function namedDoorReexports(
         isValueReexport(node)
       ) {
         const target = resolveInGraph(node.moduleSpecifier.text);
-        reportIdentityExport(node, target);
+        if (target !== undefined) {
+          results.push({ target, pos: node.getStart(sourceFile) });
+        }
         return;
       }
       if (
@@ -260,10 +270,10 @@ export function namedDoorReexports(
         ts.isNamedExports(node.exportClause) &&
         !node.isTypeOnly
       ) {
-        reportIdentityExport(
-          node,
-          firstValueNamedExportTarget(node.exportClause.elements),
-        );
+        const target = firstValueNamedExportTarget(node.exportClause.elements);
+        if (target !== undefined) {
+          results.push({ target, pos: node.getStart(sourceFile) });
+        }
         return;
       }
     }
@@ -271,54 +281,39 @@ export function namedDoorReexports(
     if (ts.isExportAssignment(node)) {
       const peeled = peelValueExpression(node.expression);
       if (ts.isIdentifier(peeled)) {
-        reportIdentityExport(node, origins.get(peeled.text));
+        const target = origins.get(peeled.text);
+        if (target !== undefined) {
+          results.push({ target, pos: node.getStart(sourceFile) });
+        }
         return;
       }
       if (ts.isCallExpression(peeled) && isRealRequire(peeled, requireIsCjs)) {
-        reportIdentityExport(
-          node,
-          resolveInGraph(stringLiteralText(peeled.arguments[0]) ?? ""),
-        );
+        const specifier = stringLiteralText(peeled.arguments[0]);
+        if (specifier !== undefined) {
+          const target = resolveInGraph(specifier);
+          if (target !== undefined) {
+            results.push({ target, pos: node.getStart(sourceFile) });
+          }
+        }
       }
       return;
     }
 
     if (hasExportModifier(node) && ts.isImportEqualsDeclaration(node)) {
-      if (
-        ts.isExternalModuleReference(node.moduleReference) &&
-        ts.isIdentifier(node.name)
-      ) {
-        reportIdentityExport(
-          node,
-          resolveInGraph(
-            stringLiteralText(node.moduleReference.expression) ?? "",
-          ),
-        );
+      if (ts.isIdentifier(node.name)) {
+        const target = origins.get(node.name.text);
+        if (target !== undefined) {
+          results.push({ target, pos: node.getStart(sourceFile) });
+        }
         return;
       }
     }
 
     if (hasExportModifier(node) && ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
-        let target: string | undefined;
-        if (declaration.initializer !== undefined) {
-          const peeled = peelValueExpression(declaration.initializer);
-          if (
-            ts.isIdentifier(declaration.name) &&
-            ts.isIdentifier(peeled)
-          ) {
-            target = origins.get(peeled.text);
-          } else if (
-            ts.isCallExpression(peeled) &&
-            isRealRequire(peeled, requireIsCjs)
-          ) {
-            target = resolveInGraph(
-              stringLiteralText(peeled.arguments[0]) ?? "",
-            );
-          }
-        }
+        const target = originFromBindingName(declaration.name, origins);
         if (target !== undefined) {
-          reportIdentityExport(node, target);
+          results.push({ target, pos: node.getStart(sourceFile) });
           return;
         }
       }
