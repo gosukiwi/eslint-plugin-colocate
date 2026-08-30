@@ -9,4 +9,8 @@ export interface Subject {
     covers(filePath: string): boolean;
     display(filePath: string): string;
 }
+export declare function resolvedLintRoot(cwd: string, rootOption: string): {
+    rootDir: string;
+    realRootDir: string;
+} | undefined;
 export declare function resolveSubject(context: Rule.RuleContext): Subject | undefined;
