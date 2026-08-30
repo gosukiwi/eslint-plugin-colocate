@@ -250,14 +250,29 @@ export function namedDoorReexports(
       return;
     }
 
+    if (hasExportModifier(node) && ts.isImportEqualsDeclaration(node)) {
+      if (
+        ts.isExternalModuleReference(node.moduleReference) &&
+        ts.isIdentifier(node.name)
+      ) {
+        reportIdentityExport(
+          node,
+          resolveInGraph(
+            stringLiteralText(node.moduleReference.expression) ?? "",
+          ),
+        );
+        return;
+      }
+    }
+
     if (hasExportModifier(node) && ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
         let target: string | undefined;
-        if (
-          ts.isIdentifier(declaration.name) &&
-          declaration.initializer !== undefined
-        ) {
-          if (ts.isIdentifier(declaration.initializer)) {
+        if (declaration.initializer !== undefined) {
+          if (
+            ts.isIdentifier(declaration.name) &&
+            ts.isIdentifier(declaration.initializer)
+          ) {
             target = origins.get(declaration.initializer.text);
           } else if (
             ts.isCallExpression(declaration.initializer) &&
@@ -279,6 +294,8 @@ export function namedDoorReexports(
   const requireIsCjs = !scopeBindsRequire(sourceFile);
   for (const statement of sourceFile.statements) {
     collectOrigins(statement, requireIsCjs);
+  }
+  for (const statement of sourceFile.statements) {
     checkExports(statement, requireIsCjs);
   }
   return results;

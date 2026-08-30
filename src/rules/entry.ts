@@ -162,16 +162,14 @@ const rule: Rule.RuleModule = {
       ExportDefaultDeclaration: (node) => {
         reportNamedDoorReexport(node);
       },
-      ExportAssignment: (node: ESTree.Node) => {
-        reportNamedDoorReexport(node);
-      },
       ImportExpression: (node) => check(node.source),
       TSImportType: (node: TypeImportNode) =>
         check(node.source ?? node.argument?.literal),
-      TSImportEqualsDeclaration: (node: ImportEqualsNode) => {
+      TSImportEqualsDeclaration: (node: ImportEqualsNode & ESTree.Node) => {
         if (node.moduleReference?.type === "TSExternalModuleReference") {
           check(node.moduleReference.expression);
         }
+        reportNamedDoorReexport(node);
       },
       CallExpression: (node) => {
         if (
