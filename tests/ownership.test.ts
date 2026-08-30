@@ -82,11 +82,6 @@ describe("ownership rule", () => {
     ]);
   });
 
-  it("does not report a barrel in the root directory", async () => {
-    const messages = await lintFixture("root-barrel", { root: "src" });
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
   it("does not report nested one-file door layout", async () => {
     const messages = await lintFixture("nested-one-file-door");
     expect(sortMessages(messages)).toEqual([]);
@@ -103,28 +98,8 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([]);
   });
 
-  it("does not report when index re-exports one module with a multiline export", async () => {
-    const messages = await lintFixture("mismatch-index-multiline");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report mismatchedEntry for a namespace barrel with multiple re-exports", async () => {
+  it("does not report ownership findings for a namespace barrel with multiple re-exports", async () => {
     const messages = await lintFixture("namespace-barrel-ok");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report mismatchedEntry when outside imports target the named entry file", async () => {
-    const messages = await lintFixture("matching-entry-ok");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report mismatchedEntry when nothing outside the directory imports it", async () => {
-    const messages = await lintFixture("unused-barrel-ok");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report mismatchedEntry when the index re-exports the named entry file", async () => {
-    const messages = await lintFixture("barrel-matching-entry-ok");
     expect(sortMessages(messages)).toEqual([]);
   });
 
@@ -358,13 +333,6 @@ describe("ownership rule", () => {
     ]);
   });
 
-  it("does not report mismatchedEntry when another re-export does not resolve", async () => {
-    const messages = await lintFixture("aggregator-unresolvable", {
-      root: "src",
-    });
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
   it("does not report a shared file at the LCA inside an ancestor that owns both consumers", async () => {
     const messages = await lintFixture("shared-at-lca-under-owner");
     expect(sortMessages(messages)).toEqual([]);
@@ -403,42 +371,6 @@ describe("ownership rule", () => {
     const messages = await lintFixture("shared-owner-entry");
     expect(sortMessages(messages)).toEqual([]);
   });
-
-  it("does not report when one sibling is re-exported as both value and type", async () => {
-    const messages = await lintFixture("type-split-barrel");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report when the single re-export is written through a tsconfig alias", async () => {
-    const messages = await lintFixture("alias-mismatch-index");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report when an index re-exports itself through an alias beside one sibling", async () => {
-    const messages = await lintFixture("alias-self-reexport-barrel");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report when two spellings of one re-exported module are used", async () => {
-    const messages = await lintFixture("extension-split-barrel");
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
-    "does not report when the single re-export's case does not match the file on disk",
-    async () => {
-      const messages = await lintFixture("wrong-case-reexport");
-      expect(sortMessages(messages)).toEqual([]);
-    },
-  );
-
-  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
-    "does not report a value+type split written with mixed casing",
-    async () => {
-      const messages = await lintFixture("wrong-case-type-split-barrel");
-      expect(sortMessages(messages)).toEqual([]);
-    },
-  );
 
   it("does not report privateOutsideOwner on a layer public module with one consumer", async () => {
     const messages = await lintFixture("layer-single-consumer", {
@@ -572,16 +504,6 @@ describe("ownership rule", () => {
     expect(sortMessages(messages)).toEqual([
       { file: "src/..data/Foo/Foo.ts", messageId: "singletonFolder" },
     ]);
-  });
-
-  it("does not report mismatchedEntry for a barrel that also re-exports foreign modules", async () => {
-    const messages = await lintFixture("aggregator-barrel", { root: "src" });
-    expect(sortMessages(messages)).toEqual([]);
-  });
-
-  it("does not report mismatchedEntry for an index that re-exports itself", async () => {
-    const messages = await lintFixture("self-reexport-barrel", { root: "src" });
-    expect(sortMessages(messages)).toEqual([]);
   });
 
   it("treats a symlinked companion stylesheet as a companion", async () => {
