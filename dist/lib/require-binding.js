@@ -27,6 +27,18 @@ function bindsName(name, target) {
     }
     return name.elements.some((element) => ts.isBindingElement(element) ? bindsName(element.name, target) : false);
 }
+function declarationBindsRequire(declaration) {
+    if (!bindsName(declaration.name, REQUIRE)) {
+        return false;
+    }
+    return !tsIsCreateRequireCall(declaration.initializer);
+}
+function statementBindsRequire(statement) {
+    if (ts.isVariableStatement(statement)) {
+        return statement.declarationList.declarations.some(declarationBindsRequire);
+    }
+    return (ts.isFunctionDeclaration(statement) && statement.name?.text === REQUIRE);
+}
 export function scopeBindsRequire(node) {
     if (ts.isFunctionLike(node)) {
         if (node.parameters.some((p) => bindsName(p.name, REQUIRE))) {
@@ -41,24 +53,7 @@ export function scopeBindsRequire(node) {
     if (statements === undefined) {
         return false;
     }
-    for (const statement of statements) {
-        if (ts.isVariableStatement(statement)) {
-            for (const declaration of statement.declarationList.declarations) {
-                if (!bindsName(declaration.name, REQUIRE)) {
-                    continue;
-                }
-                if (tsIsCreateRequireCall(declaration.initializer)) {
-                    continue;
-                }
-                return true;
-            }
-        }
-        if (ts.isFunctionDeclaration(statement) &&
-            statement.name?.text === REQUIRE) {
-            return true;
-        }
-    }
-    return false;
+    return statements.some(statementBindsRequire);
 }
 export function requireIsShadowed(sourceCode, node) {
     let scope = sourceCode.getScope(node);

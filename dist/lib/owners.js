@@ -106,6 +106,19 @@ function buildImports(graph) {
     }
     return imports;
 }
+function popComponent(stack, onStack, ids, id, root) {
+    while (true) {
+        const member = stack.pop();
+        if (member === undefined) {
+            break;
+        }
+        onStack.delete(member);
+        ids.set(member, id);
+        if (member === root) {
+            break;
+        }
+    }
+}
 function stronglyConnectedIds(nodes, edgesOf) {
     const index = new Map();
     const low = new Map();
@@ -122,6 +135,27 @@ function stronglyConnectedIds(nodes, edgesOf) {
         onStack.add(node);
         frames.push({ node, edges: edgesOf(node), next: 0 });
     };
+    const visitEdge = (frame, child, frames) => {
+        if (!index.has(child)) {
+            push(child, frames);
+            return;
+        }
+        if (onStack.has(child)) {
+            low.set(frame.node, Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0));
+        }
+    };
+    const finishFrame = (frame, frames) => {
+        frames.pop();
+        const parent = frames[frames.length - 1];
+        if (parent !== undefined) {
+            low.set(parent.node, Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0));
+        }
+        if (low.get(frame.node) === index.get(frame.node)) {
+            const id = nextId;
+            nextId += 1;
+            popComponent(stack, onStack, ids, id, frame.node);
+        }
+    };
     for (const start of nodes) {
         if (index.has(start)) {
             continue;
@@ -133,34 +167,10 @@ function stronglyConnectedIds(nodes, edgesOf) {
             if (frame.next < frame.edges.length) {
                 const child = frame.edges[frame.next];
                 frame.next += 1;
-                if (!index.has(child)) {
-                    push(child, frames);
-                }
-                else if (onStack.has(child)) {
-                    low.set(frame.node, Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0));
-                }
+                visitEdge(frame, child, frames);
                 continue;
             }
-            frames.pop();
-            const parent = frames[frames.length - 1];
-            if (parent !== undefined) {
-                low.set(parent.node, Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0));
-            }
-            if (low.get(frame.node) === index.get(frame.node)) {
-                const id = nextId;
-                nextId += 1;
-                while (true) {
-                    const member = stack.pop();
-                    if (member === undefined) {
-                        break;
-                    }
-                    onStack.delete(member);
-                    ids.set(member, id);
-                    if (member === frame.node) {
-                        break;
-                    }
-                }
-            }
+            finishFrame(frame, frames);
         }
     }
     return ids;
