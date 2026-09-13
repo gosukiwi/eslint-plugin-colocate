@@ -1,10 +1,9 @@
 import path from "node:path";
-import { findCrossedGate } from "../lib/gates.js";
+import { findCrossedGate, isNamedDoor, namedDoorReexports, } from "../lib/named-door/index.js";
 import { canonicalGraphPath, getGraphResolutionSettings, } from "../lib/graph.js";
-import { isNamedDoor, namedDoorReexports } from "../lib/named-door.js";
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
-import { resolveSubject } from "../lib/subject.js";
+import { resolveSubject } from "../lib/findings/index.js";
 function staticSpecifier(source) {
     if (source.type === "Literal") {
         return typeof source.value === "string" ? source.value : undefined;

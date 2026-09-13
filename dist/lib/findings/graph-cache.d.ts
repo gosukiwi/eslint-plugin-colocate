@@ -1,4 +1,4 @@
-import { type Graph } from "./graph.js";
+import { type Graph } from "../graph.js";
 export type VisitToken = object;
 export declare const REVALIDATE_AFTER_MS = 100;
 export declare function stampIsAmbiguous(mtimeMs: number, builtAt: number, coarseTimestamps: boolean, stampedAt: number): boolean;

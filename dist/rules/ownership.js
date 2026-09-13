@@ -1,5 +1,4 @@
-import { ownershipFindings } from "../lib/findings.js";
-import { resolveSubject } from "../lib/subject.js";
+import { ownershipFindings, resolveSubject } from "../lib/findings/index.js";
 const rule = {
     meta: {
         type: "problem",
