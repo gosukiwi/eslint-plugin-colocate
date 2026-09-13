@@ -1,7 +1,7 @@
 # Invariants (do not regress)
 
 - Do not reintroduce a `shells` option or a transitive / wholesale shell exemption.
-- Folder entry files are unflaggable *in their own folder*.
+- Folder entry files are unflaggable _in their own folder_.
 - Convenience barrels over loose helpers are not owners.
 - Namespace barrels (≥2 local re-exports) are not consumers; single local re-export is.
 - `ignore` and `SKIP_DIRS` apply to subjects, consumers, singleton counts, and cache invalidation alike.

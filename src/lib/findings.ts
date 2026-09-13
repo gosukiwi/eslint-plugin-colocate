@@ -9,12 +9,7 @@ import {
   resolveLayerDirectories,
   type OwnershipContext,
 } from "./owners.js";
-import {
-  isSourceFile,
-  isTestFile,
-  matchesIgnore,
-  SKIP_DIRS,
-} from "./scope.js";
+import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS } from "./scope.js";
 import type { Subject } from "./subject.js";
 
 export interface SingletonDirectoryStats {
@@ -101,8 +96,7 @@ export function singletonDirectoryStats(
     return cached;
   }
   const sourceCount = countSourceFilesRecursive(dir, rootDir, ignore);
-  const hasStylesheet =
-    sourceCount === 1 && hasCompanionStylesheet(dir);
+  const hasStylesheet = sourceCount === 1 && hasCompanionStylesheet(dir);
   const stats: SingletonDirectoryStats = { sourceCount, hasStylesheet };
   cache.set(dir, stats);
   return stats;

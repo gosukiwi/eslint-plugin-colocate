@@ -19,7 +19,9 @@ afterEach(() => {
 });
 
 function project(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "fol-walk-"));
+  const dir = fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "fol-walk-"),
+  );
   created.push(dir);
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel);
@@ -77,7 +79,8 @@ describe("walking the tree", () => {
   it("does not record files whose real path escapes the root", () => {
     const dir = project({
       "src/pages/helper.ts": "export const h = 1;\n",
-      "vendor/Consumer.ts": 'import "../src/pages/helper";\nexport const c = 1;\n',
+      "vendor/Consumer.ts":
+        'import "../src/pages/helper";\nexport const c = 1;\n',
     });
     link(dir, "../../vendor", "src/pages/linked");
 
@@ -158,8 +161,11 @@ describe("walking the tree", () => {
   });
 
   it("does not blow up on nested sibling symlinks", () => {
-    const files: Record<string, string> = { "src/leaf/real.ts": "export const r = 1;\n" };
-    for (let i = 0; i < 12; i += 1) files[`src/d${i}/keep.ts`] = "export const k = 1;\n";
+    const files: Record<string, string> = {
+      "src/leaf/real.ts": "export const r = 1;\n",
+    };
+    for (let i = 0; i < 12; i += 1)
+      files[`src/d${i}/keep.ts`] = "export const k = 1;\n";
     const dir = project(files);
     for (let i = 0; i < 11; i += 1) {
       link(dir, `../d${i + 1}`, `src/d${i}/p`);
@@ -251,13 +257,14 @@ describe("resolution fallbacks", () => {
         compilerOptions: { baseUrl: ".", paths: { "@/*": ["./src/*"] } },
       }),
       "src/pages/helper.cts": "export const h = 1;\n",
-      "src/pages/MyPage/MyPage.ts": 'import "@/pages/helper";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "@/pages/helper";\nexport const p = 1;\n',
     });
     const graph = buildGraph(path.join(dir, "src"), []);
 
-    expect(
-      graph.importers.get(path.join(dir, "src/pages/helper.cts")),
-    ).toEqual([path.join(dir, "src/pages/MyPage/MyPage.ts")]);
+    expect(graph.importers.get(path.join(dir, "src/pages/helper.cts"))).toEqual(
+      [path.join(dir, "src/pages/MyPage/MyPage.ts")],
+    );
   });
 
   it("resolves a directory import onto an index file the compiler declines", () => {
@@ -285,7 +292,9 @@ describe("resolution fallbacks", () => {
     });
     const graph = buildGraph(path.join(dir, "src"), []);
 
-    expect(graph.importers.get(path.join(dir, "src/legacy/x.ts"))).toBeUndefined();
+    expect(
+      graph.importers.get(path.join(dir, "src/legacy/x.ts")),
+    ).toBeUndefined();
   });
 
   it("still resolves relative imports onto those extensions", () => {
@@ -382,7 +391,9 @@ describe("caching with a symlinked root", () => {
     const root = path.join(dir, "src");
 
     const first = getGraph(root, ["gen"], path.join(dir, "src/main.ts"));
-    expect(getGraph(root, ["gen"], path.join(dir, "src/gen/Foo.ts"))).toBe(first);
+    expect(getGraph(root, ["gen"], path.join(dir, "src/gen/Foo.ts"))).toBe(
+      first,
+    );
     expect(getGraph(root, ["gen"], path.join(dir, "src/dist/bundle.ts"))).toBe(
       first,
     );

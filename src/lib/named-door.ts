@@ -267,11 +267,7 @@ function collectOrigins(node: ts.Node, scan: DoorScan): void {
   }
 }
 
-function pushExportTarget(
-  scan: DoorScan,
-  node: ts.Node,
-  target: string,
-): void {
+function pushExportTarget(scan: DoorScan, node: ts.Node, target: string): void {
   scan.results.push({ target, pos: node.getStart(scan.sourceFile) });
 }
 
@@ -436,10 +432,7 @@ export function namedDoorReexports(
   if (!isNamedDoor(filePath)) {
     return [];
   }
-  const source =
-    typeof content === "string"
-      ? content
-      : safeReadFile(filePath);
+  const source = typeof content === "string" ? content : safeReadFile(filePath);
   if (source === undefined) {
     return [];
   }

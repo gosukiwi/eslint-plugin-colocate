@@ -167,7 +167,9 @@ describe("entry rule", () => {
   });
 
   it("reports dynamic import nested in lazy(() => import())", async () => {
-    const messages = await lintEntryFixture("entry-lazy-import", { root: "src" });
+    const messages = await lintEntryFixture("entry-lazy-import", {
+      root: "src",
+    });
     expect(messages).toEqual([
       {
         file: "src/app.ts",
@@ -347,9 +349,13 @@ describe("entry rule", () => {
       fileURLToPath(new URL(".", import.meta.url)),
       "fixtures/entry-reaches-past",
     );
-    const results = await makeESLint(cwd, { root: "src" }, {
-      rule: "entry",
-    }).lintText('import { helper } from "./Feature/helper";\n', {
+    const results = await makeESLint(
+      cwd,
+      { root: "src" },
+      {
+        rule: "entry",
+      },
+    ).lintText('import { helper } from "./Feature/helper";\n', {
       filePath: path.join(cwd, "src/ghost.ts"),
     });
     expect(collectRuleMessages(cwd, results, "entry")).toEqual([]);
@@ -611,9 +617,12 @@ describe("entry rule", () => {
   });
 
   it("reports a named door that default-exports a require call", async () => {
-    const messages = await lintEntryFixture("entry-named-door-require-default", {
-      root: "src",
-    });
+    const messages = await lintEntryFixture(
+      "entry-named-door-require-default",
+      {
+        root: "src",
+      },
+    );
     expect(pick(messages, "file", "line", "messageId")).toEqual([
       {
         file: "src/Foo/Foo.ts",
@@ -921,9 +930,13 @@ describe("entry rule", () => {
         fileURLToPath(new URL(".", import.meta.url)),
         "fixtures/entry-importer-inside-ok",
       );
-      const results = await makeESLint(cwd, { root: "src" }, {
-        rule: "entry",
-      }).lintFiles(["src/feature/Feature.ts"]);
+      const results = await makeESLint(
+        cwd,
+        { root: "src" },
+        {
+          rule: "entry",
+        },
+      ).lintFiles(["src/feature/Feature.ts"]);
       expect(collectRuleMessages(cwd, results, "entry")).toEqual([]);
     },
   );

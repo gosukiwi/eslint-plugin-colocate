@@ -3,7 +3,11 @@ import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeRealpath } from "./fs-safe.js";
 import { extractSpecifiers } from "./parse.js";
-import { createResolutionSettings, resolveSpecifier, type ResolutionSettings } from "./resolve.js";
+import {
+  createResolutionSettings,
+  resolveSpecifier,
+  type ResolutionSettings,
+} from "./resolve.js";
 import { collectSourceFiles } from "./walk.js";
 
 export interface Graph {
@@ -35,10 +39,7 @@ const graphFilesByDir = derivedFromGraph((graph) =>
   filesByParentDir(graph.files),
 );
 
-export function graphFilesInDir(
-  graph: Graph,
-  dir: string,
-): readonly string[] {
+export function graphFilesInDir(graph: Graph, dir: string): readonly string[] {
   return graphFilesByDir(graph).get(dir) ?? [];
 }
 

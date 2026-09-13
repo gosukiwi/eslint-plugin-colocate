@@ -15,9 +15,9 @@ describe("extractSpecifiers", () => {
   });
 
   it("records a type-position import() in a type annotation", () => {
-    expect(
-      extractSpecifiers('let v: import("./mod").T;\n', "a.ts"),
-    ).toEqual(["./mod"]);
+    expect(extractSpecifiers('let v: import("./mod").T;\n', "a.ts")).toEqual([
+      "./mod",
+    ]);
   });
 
   it("ignores a type-position import() whose argument is not a string literal", () => {
@@ -33,10 +33,7 @@ describe("extractSpecifiers", () => {
 
   it("records import() nested in lazy(() => import())", () => {
     expect(
-      extractSpecifiers(
-        'const Page = lazy(() => import("./mod"));\n',
-        "a.ts",
-      ),
+      extractSpecifiers('const Page = lazy(() => import("./mod"));\n', "a.ts"),
     ).toEqual(["./mod"]);
   });
 
@@ -55,9 +52,9 @@ describe("extractSpecifiers", () => {
   });
 
   it("records the cooked value of a no-substitution template specifier", () => {
-    expect(
-      extractSpecifiers("import(`./hel\\u0070er`);\n", "a.ts"),
-    ).toEqual(["./helper"]);
+    expect(extractSpecifiers("import(`./hel\\u0070er`);\n", "a.ts")).toEqual([
+      "./helper",
+    ]);
   });
 
   it("ignores a template specifier with substitutions", () => {

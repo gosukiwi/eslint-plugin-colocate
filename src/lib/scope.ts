@@ -51,7 +51,10 @@ export function isOutsideRoot(relPath: string): boolean {
   );
 }
 
-export function isExcludedPath(relPath: string, ignoreGlobs: string[]): boolean {
+export function isExcludedPath(
+  relPath: string,
+  ignoreGlobs: string[],
+): boolean {
   const segments = relPath.split(path.sep);
   for (let i = 1; i <= segments.length; i += 1) {
     if (SKIP_DIRS.has(segments[i - 1])) {

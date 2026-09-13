@@ -15,7 +15,10 @@ import {
 } from "../src/lib/graph.js";
 import { getOwner, getShells } from "../src/lib/owners.js";
 import { extractSpecifiers, parseSourceFile } from "../src/lib/parse.js";
-import { createResolutionSettings, resolveSpecifier } from "../src/lib/resolve.js";
+import {
+  createResolutionSettings,
+  resolveSpecifier,
+} from "../src/lib/resolve.js";
 import { safeReadFile } from "../src/lib/fs-safe.js";
 import type { Subject } from "../src/lib/subject.js";
 import { collectSourceFiles } from "../src/lib/walk.js";
@@ -90,7 +93,8 @@ function writeTree(root: string, targetFiles: number): { files: string[] } {
 
   for (let i = 0; i < sharedCount; i++) {
     const a = featureNames[i % featureNames.length];
-    const b = featureNames[(i + Math.floor(featureCount / 3)) % featureNames.length];
+    const b =
+      featureNames[(i + Math.floor(featureCount / 3)) % featureNames.length];
     files[`src/shared/util${i}.ts`] =
       `export const util${i} = ${i};\n${filler(`util${i}`)}`;
     files[`src/features/${a}/${a}.ts`] +=
@@ -165,11 +169,15 @@ function makeSubject(file: string, rootDir: string, graph: Graph): Subject {
     ignore: [],
     graph: () => graph,
     covers: (filePath) => graph.files.includes(filePath),
-    display: (filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"),
+    display: (filePath) =>
+      path.relative(rootDir, filePath).split(path.sep).join("/"),
   };
 }
 
-function makeESLint(cwd: string, rules: "both" | "none" | "ownership" | "entry"): ESLint {
+function makeESLint(
+  cwd: string,
+  rules: "both" | "none" | "ownership" | "entry",
+): ESLint {
   const enabled: Record<string, unknown> = {};
   if (rules === "both" || rules === "ownership") {
     enabled["colocate/ownership"] = ["error", { root: "src" }];
@@ -211,7 +219,9 @@ async function measureSize(targetFiles: number): Promise<void> {
   const firstFile = path.join(srcRoot, "main.ts");
   const coldGraphStart = now();
   getGraph(srcRoot, [], firstFile);
-  console.log(`${pad("getGraph cold (walk+stamp+build)")} ${ms(coldGraphStart)}`);
+  console.log(
+    `${pad("getGraph cold (walk+stamp+build)")} ${ms(coldGraphStart)}`,
+  );
 
   const walked = collectSourceFiles(srcRoot, []);
   const burstStart = now();
@@ -228,7 +238,9 @@ async function measureSize(targetFiles: number): Promise<void> {
   await new Promise((r) => setTimeout(r, 120));
   const revalidateStart = now();
   getGraph(srcRoot, [], firstFile);
-  console.log(`${pad("getGraph revalidate (new pass)")} ${ms(revalidateStart)}`);
+  console.log(
+    `${pad("getGraph revalidate (new pass)")} ${ms(revalidateStart)}`,
+  );
 
   const walkStart = now();
   collectSourceFiles(srcRoot, []);
@@ -293,24 +305,33 @@ async function measureSize(targetFiles: number): Promise<void> {
   const buildStart = now();
   const { graph } = buildGraphFromFiles(walked.files, srcRoot);
   const buildMs = now() - buildStart;
-  const importerCount = [...graph.importers.values()].reduce((n, xs) => n + xs.length, 0);
+  const importerCount = [...graph.importers.values()].reduce(
+    (n, xs) => n + xs.length,
+    0,
+  );
   console.log(
     `${pad("buildGraphFromFiles")} ${buildMs.toFixed(1)}ms  (${importerCount} edges)`,
   );
 
   const shellsStart = now();
   const shells = getShells(graph);
-  console.log(`${pad("getShells (SCC)")} ${(now() - shellsStart).toFixed(1)}ms  (${shells.size} shells)`);
+  console.log(
+    `${pad("getShells (SCC)")} ${(now() - shellsStart).toFixed(1)}ms  (${shells.size} shells)`,
+  );
 
   const gatesStart = now();
   const gates = getGates(graph);
-  console.log(`${pad("getGates")} ${(now() - gatesStart).toFixed(1)}ms  (${gates.size} gates)`);
+  console.log(
+    `${pad("getGates")} ${(now() - gatesStart).toFixed(1)}ms  (${gates.size} gates)`,
+  );
 
   const ownerStart = now();
   for (const file of graph.files) {
     getOwner(file, graph, srcRoot);
   }
-  console.log(`${pad("getOwner all files")} ${(now() - ownerStart).toFixed(1)}ms`);
+  console.log(
+    `${pad("getOwner all files")} ${(now() - ownerStart).toFixed(1)}ms`,
+  );
 
   const indexStart = now();
   const byDir = new Map<string, string[]>();
@@ -364,12 +385,18 @@ async function measureSize(targetFiles: number): Promise<void> {
     }
     countSourceFilesShallowish(dir, srcRoot);
   }
-  console.log(`${pad("singleton readdir walks")} ${(now() - singletonStart).toFixed(1)}ms`);
+  console.log(
+    `${pad("singleton readdir walks")} ${(now() - singletonStart).toFixed(1)}ms`,
+  );
 
   const findingsStart = now();
   let findingCount = 0;
   for (const file of graph.files) {
-    findingCount += ownershipFindings(makeSubject(file, srcRoot, graph), srcRoot, []).length;
+    findingCount += ownershipFindings(
+      makeSubject(file, srcRoot, graph),
+      srcRoot,
+      [],
+    ).length;
   }
   console.log(
     `${pad("ownershipFindings all files")} ${(now() - findingsStart).toFixed(1)}ms  (${findingCount} reports)`,
@@ -384,7 +411,11 @@ async function measureSize(targetFiles: number): Promise<void> {
       continue;
     }
     for (const specifier of extractSpecifiers(content, file)) {
-      const resolved = resolveSpecifier(specifier, path.dirname(file), resSettings);
+      const resolved = resolveSpecifier(
+        specifier,
+        path.dirname(file),
+        resSettings,
+      );
       if (resolved === undefined) {
         continue;
       }
@@ -412,7 +443,8 @@ async function measureSize(targetFiles: number): Promise<void> {
   const results = await makeESLint(root, "both").lintFiles(["src/**/*.ts"]);
   const bothMs = now() - bothStart;
   const pluginReports = results.reduce(
-    (n, r) => n + r.messages.filter((m) => m.ruleId?.startsWith("colocate/")).length,
+    (n, r) =>
+      n + r.messages.filter((m) => m.ruleId?.startsWith("colocate/")).length,
     0,
   );
 
@@ -428,7 +460,9 @@ async function measureSize(targetFiles: number): Promise<void> {
   await makeESLint(root, "both").lintFiles(["src/**/*.ts"]);
   const warmMs = now() - warmStart;
 
-  console.log(`${pad("ESLint parser only (no rules)")} ${parserOnlyMs.toFixed(1)}ms`);
+  console.log(
+    `${pad("ESLint parser only (no rules)")} ${parserOnlyMs.toFixed(1)}ms`,
+  );
   console.log(
     `${pad("ESLint both rules (graph warm)")} ${bothMs.toFixed(1)}ms  (${pluginReports} reports)`,
   );
@@ -436,7 +470,7 @@ async function measureSize(targetFiles: number): Promise<void> {
   console.log(`${pad("ESLint entry only")} ${entryMs.toFixed(1)}ms`);
   console.log(`${pad("ESLint both second pass")} ${warmMs.toFixed(1)}ms`);
   console.log(
-    `${pad("plugin overhead vs parser")} ${((bothMs - parserOnlyMs) / parserOnlyMs * 100).toFixed(0)}% of parser-only (${(bothMs - parserOnlyMs).toFixed(1)}ms)`,
+    `${pad("plugin overhead vs parser")} ${(((bothMs - parserOnlyMs) / parserOnlyMs) * 100).toFixed(0)}% of parser-only (${(bothMs - parserOnlyMs).toFixed(1)}ms)`,
   );
 }
 

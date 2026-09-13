@@ -63,7 +63,9 @@ describe("collectLayerDirectories", () => {
   });
 
   it("returns nothing when no globs are configured", () => {
-    expect(collectLayerDirectories(fs.realpathSync(fixtureRoot), [])).toEqual([]);
+    expect(collectLayerDirectories(fs.realpathSync(fixtureRoot), [])).toEqual(
+      [],
+    );
   });
 });
 
@@ -171,10 +173,7 @@ describe("collectReExports", () => {
     const first = collectReExports(indexPath, fooDir, graph);
     expect(first).toEqual([path.join(fooDir, "A.ts")]);
 
-    fs.writeFileSync(
-      indexPath,
-      'export * from "./A";\nexport * from "./B";\n',
-    );
+    fs.writeFileSync(indexPath, 'export * from "./A";\nexport * from "./B";\n');
     const second = collectReExports(indexPath, fooDir, graph);
 
     expect(second).toBe(first);
@@ -195,10 +194,7 @@ describe("collectReExports", () => {
     const graph = buildGraph(srcDir, []);
     const first = collectReExports(indexPath, fooDir, graph);
 
-    fs.writeFileSync(
-      indexPath,
-      'export * from "./A";\nexport * from "./B";\n',
-    );
+    fs.writeFileSync(indexPath, 'export * from "./A";\nexport * from "./B";\n');
     const graph2 = buildGraph(srcDir, []);
     const second = collectReExports(indexPath, fooDir, graph2);
 

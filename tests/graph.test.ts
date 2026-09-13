@@ -70,9 +70,9 @@ function fixture(name: string): string {
 
 describe("isTestFile", () => {
   it("returns true when any path segment is __tests__", () => {
-    expect(
-      isTestFile("src" + path.sep + "__tests__" + path.sep + "a.ts"),
-    ).toBe(true);
+    expect(isTestFile("src" + path.sep + "__tests__" + path.sep + "a.ts")).toBe(
+      true,
+    );
   });
 
   it("returns false for paths that do not contain a __tests__ segment", () => {
@@ -191,9 +191,9 @@ describe("getGraph", () => {
     const rootDir = fixture("alias-longest-prefix");
     const graph = getGraph(rootDir, [], path.join(rootDir, "src/main.ts"));
 
-    expect(graph.importers.get(path.join(rootDir, "src/core/Thing.ts"))).toEqual([
-      path.join(rootDir, "src/main.ts"),
-    ]);
+    expect(
+      graph.importers.get(path.join(rootDir, "src/core/Thing.ts")),
+    ).toEqual([path.join(rootDir, "src/main.ts")]);
     expect(
       graph.importers.get(path.join(rootDir, "src/legacy/core/Thing.ts")),
     ).toBeUndefined();
@@ -204,9 +204,9 @@ describe("getGraph", () => {
     const mainPath = path.join(rootDir, "src/main.ts");
     const graph = getGraph(rootDir, [], mainPath);
 
-    expect(graph.importers.get(path.join(rootDir, "src/lib/thing.ts"))).toEqual([
-      mainPath,
-    ]);
+    expect(graph.importers.get(path.join(rootDir, "src/lib/thing.ts"))).toEqual(
+      [mainPath],
+    );
     expect(graph.importers.get(path.join(rootDir, "src/other.ts"))).toEqual([
       mainPath,
     ]);
@@ -235,26 +235,35 @@ describe("getGraph", () => {
     const originalStat = fs.statSync.bind(fs);
     const originalReaddir = fs.readdirSync.bind(fs);
 
-    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath, ...args) => {
-      const resolved =
-        typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
-      if (resolved === walkedDir) {
-        events.push({ kind: "stat", path: resolved });
-      }
-      return originalStat(filePath as fs.PathLike, ...args);
-    });
+    const statSpy = vi
+      .spyOn(fs, "statSync")
+      .mockImplementation((filePath, ...args) => {
+        const resolved =
+          typeof filePath === "string"
+            ? fs.realpathSync(filePath)
+            : String(filePath);
+        if (resolved === walkedDir) {
+          events.push({ kind: "stat", path: resolved });
+        }
+        return originalStat(filePath as fs.PathLike, ...args);
+      });
 
     const readdirSpy = vi
       .spyOn(fs, "readdirSync")
       .mockImplementation((filePath, ...args) => {
         const resolved =
-          typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+          typeof filePath === "string"
+            ? fs.realpathSync(filePath)
+            : String(filePath);
         if (resolved === walkedDir) {
           events.push({ kind: "readdir", path: resolved });
         }
         return originalReaddir(
           filePath as Parameters<typeof fs.readdirSync>[0],
-          ...(args as Parameters<typeof fs.readdirSync> extends [unknown, ...infer R]
+          ...(args as Parameters<typeof fs.readdirSync> extends [
+            unknown,
+            ...infer R,
+          ]
             ? R
             : never),
         );
@@ -278,7 +287,10 @@ describe("getGraph", () => {
     const base = fs.realpathSync(tempDir("colocate-stamp-order-"));
     const srcDir = path.join(base, "src");
     fs.mkdirSync(srcDir, { recursive: true });
-    fs.writeFileSync(path.join(srcDir, "a.ts"), 'import "./b";\nexport const a = 1;\n');
+    fs.writeFileSync(
+      path.join(srcDir, "a.ts"),
+      'import "./b";\nexport const a = 1;\n',
+    );
     fs.writeFileSync(path.join(srcDir, "b.ts"), "export const b = 1;\n");
     const aPath = fs.realpathSync(path.join(srcDir, "a.ts"));
     const bPath = fs.realpathSync(path.join(srcDir, "b.ts"));
@@ -287,26 +299,35 @@ describe("getGraph", () => {
     const originalStat = fs.statSync.bind(fs);
     const originalRead = fs.readFileSync.bind(fs);
 
-    const statSpy = vi.spyOn(fs, "statSync").mockImplementation((filePath, ...args) => {
-      const resolved =
-        typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
-      if (resolved === aPath || resolved === bPath) {
-        events.push({ kind: "stat", path: resolved });
-      }
-      return originalStat(filePath as fs.PathLike, ...args);
-    });
+    const statSpy = vi
+      .spyOn(fs, "statSync")
+      .mockImplementation((filePath, ...args) => {
+        const resolved =
+          typeof filePath === "string"
+            ? fs.realpathSync(filePath)
+            : String(filePath);
+        if (resolved === aPath || resolved === bPath) {
+          events.push({ kind: "stat", path: resolved });
+        }
+        return originalStat(filePath as fs.PathLike, ...args);
+      });
 
     const readSpy = vi
       .spyOn(fs, "readFileSync")
       .mockImplementation((filePath, ...args) => {
         const resolved =
-          typeof filePath === "string" ? fs.realpathSync(filePath) : String(filePath);
+          typeof filePath === "string"
+            ? fs.realpathSync(filePath)
+            : String(filePath);
         if (resolved === aPath || resolved === bPath) {
           events.push({ kind: "read", path: resolved });
         }
         return originalRead(
           filePath as Parameters<typeof fs.readFileSync>[0],
-          ...(args as Parameters<typeof fs.readFileSync> extends [unknown, ...infer R]
+          ...(args as Parameters<typeof fs.readFileSync> extends [
+            unknown,
+            ...infer R,
+          ]
             ? R
             : never),
         );

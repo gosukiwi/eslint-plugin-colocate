@@ -61,7 +61,8 @@ describe("graph invalidation within one process", () => {
     expect(await lint(dir, ["src/pages/helper.ts"])).toEqual([]);
 
     write(dir, {
-      "src/pages/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
     });
 
     expect(await lint(dir, ["src/pages/helper.ts"])).toEqual([
@@ -72,7 +73,8 @@ describe("graph invalidation within one process", () => {
   it("clears the report when the offending import is removed from a different file", async () => {
     const dir = project({
       ...APP,
-      "src/pages/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
     });
     expect(await lint(dir, ["src/pages/helper.ts"])).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
@@ -86,7 +88,8 @@ describe("graph invalidation within one process", () => {
   it("clears the report when the only importer is deleted", async () => {
     const dir = project({
       ...APP,
-      "src/pages/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
     });
     expect(await lint(dir, ["src/pages/helper.ts"])).toEqual([
       { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },
@@ -104,7 +107,8 @@ describe("graph invalidation within one process", () => {
 
     write(dir, {
       "src/ui/Modal.ts": "export const m = 1;\n",
-      "src/pages/MyPage/MyPage.ts": 'import "../../ui/Modal";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "../../ui/Modal";\nexport const p = 1;\n',
     });
 
     expect(await lint(dir, ["src"], options)).toEqual([]);
@@ -299,10 +303,12 @@ describe("graph invalidation within one process", () => {
     ).lintFiles(["src"]);
 
     expect(
-      collectRuleMessages(dir, results, "ownership").map(({ file, messageId }) => ({
-        file,
-        messageId,
-      })),
+      collectRuleMessages(dir, results, "ownership").map(
+        ({ file, messageId }) => ({
+          file,
+          messageId,
+        }),
+      ),
     ).not.toContainEqual({
       file: "src/Feature/util.ts",
       messageId: "privateOutsideOwner",
@@ -372,7 +378,8 @@ describe("graph invalidation within one process", () => {
   it("revalidates when one retained SourceCode is verified again after an edit", async () => {
     const dir = project({
       ...APP,
-      "src/pages/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
     });
     const helper = path.join(dir, "src/pages/helper.ts");
     const linter = new Linter({ cwd: dir });

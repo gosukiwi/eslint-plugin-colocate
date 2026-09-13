@@ -28,13 +28,13 @@ SEED=<n> npm run check:placement     # reproduce a sweep
 
 ## Read when relevant
 
-| If you are… | Read |
-| --- | --- |
-| Lost, adding a module, or changing how rules talk to the model | [architecture](docs/agents/architecture.md) |
-| Changing owners, shells, layers, barrels, consumers, or ownership reports | [ownership](docs/agents/ownership.md) |
-| Changing gates, `colocate/entry`, or import-boundary visitors | [entry](docs/agents/entry.md) |
-| Changing `root` / `ignore` / `layers` or the options schema | [options](docs/agents/options.md) |
-| Changing the walk, resolution, cache, or filesystem degradation | [graph](docs/agents/graph.md) |
-| Adding or changing tests or fixtures | [testing](docs/agents/testing.md) |
-| About to change the model (do-not-regress checklist) | [invariants](docs/agents/invariants.md) |
-| Touching a GitHub issue or a graph/gate bug | [known-issues](docs/agents/known-issues.md) |
+| If you are…                                                               | Read                                        |
+| ------------------------------------------------------------------------- | ------------------------------------------- |
+| Lost, adding a module, or changing how rules talk to the model            | [architecture](docs/agents/architecture.md) |
+| Changing owners, shells, layers, barrels, consumers, or ownership reports | [ownership](docs/agents/ownership.md)       |
+| Changing gates, `colocate/entry`, or import-boundary visitors             | [entry](docs/agents/entry.md)               |
+| Changing `root` / `ignore` / `layers` or the options schema               | [options](docs/agents/options.md)           |
+| Changing the walk, resolution, cache, or filesystem degradation           | [graph](docs/agents/graph.md)               |
+| Adding or changing tests or fixtures                                      | [testing](docs/agents/testing.md)           |
+| About to change the model (do-not-regress checklist)                      | [invariants](docs/agents/invariants.md)     |
+| Touching a GitHub issue or a graph/gate bug                               | [known-issues](docs/agents/known-issues.md) |

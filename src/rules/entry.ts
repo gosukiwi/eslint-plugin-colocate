@@ -2,7 +2,10 @@ import path from "node:path";
 import type { Rule } from "eslint";
 import type * as ESTree from "estree";
 import { findCrossedGate, type CrossedGate } from "../lib/gates.js";
-import { canonicalGraphPath, getGraphResolutionSettings } from "../lib/graph.js";
+import {
+  canonicalGraphPath,
+  getGraphResolutionSettings,
+} from "../lib/graph.js";
 import { isNamedDoor, namedDoorReexports } from "../lib/named-door.js";
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
@@ -97,10 +100,7 @@ const rule: Rule.RuleModule = {
             subject.file,
             subject.graph(),
             context.sourceCode.getText(),
-          ).map((reexport) => [
-            reexport.pos,
-            reexport.target,
-          ]),
+          ).map((reexport) => [reexport.pos, reexport.target]),
         )
       : undefined;
 

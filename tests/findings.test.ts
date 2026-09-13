@@ -87,10 +87,7 @@ describe("singletonDirectoryStats", () => {
       path.join(widgetDir, "Widget.ts"),
       "export const w = 1;\n",
     );
-    fs.writeFileSync(
-      path.join(widgetDir, "Widget.module.css"),
-      ".w {}\n",
-    );
+    fs.writeFileSync(path.join(widgetDir, "Widget.module.css"), ".w {}\n");
     fs.writeFileSync(path.join(srcDir, "app.ts"), "export const app = 1;\n");
 
     const graph = buildGraph(srcDir, []);
@@ -110,7 +107,12 @@ describe("singletonDirectoryStats", () => {
     fs.writeFileSync(path.join(srcDir, "app.ts"), "export const app = 1;\n");
 
     const graph = buildGraph(srcDir, ["**/skip.ts"]);
-    const stats = singletonDirectoryStats(fooDir, srcDir, ["**/skip.ts"], graph);
+    const stats = singletonDirectoryStats(
+      fooDir,
+      srcDir,
+      ["**/skip.ts"],
+      graph,
+    );
 
     expect(stats.sourceCount).toBe(1);
     expect(stats.hasStylesheet).toBe(false);

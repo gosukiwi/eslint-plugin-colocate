@@ -551,10 +551,7 @@ describe("ownership rule", () => {
 
     for (const result of results) {
       for (const message of result.messages) {
-        if (
-          message.ruleId === "colocate/ownership" &&
-          message.messageId
-        ) {
+        if (message.ruleId === "colocate/ownership" && message.messageId) {
           messages.push({
             file: path.relative(cwd, result.filePath),
             messageId: message.messageId,
