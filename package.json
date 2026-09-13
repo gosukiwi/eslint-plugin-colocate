@@ -27,7 +27,7 @@
     "crap": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=lcov && crap4ts src --coverage ./coverage/lcov.info --max-crap 15",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint ."
+    "lint": "eslint . --max-warnings 0"
   },
   "peerDependencies": {
     "eslint": ">=9"
