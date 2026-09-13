@@ -1,15 +1,20 @@
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import { derivedFromGraph } from "./derived.js";
-import { classifyDirEntry, safeReaddir, safeStat } from "./fs-safe.js";
-import type { Graph } from "./graph.js";
+import { derivedFromGraph } from "../derived.js";
+import { classifyDirEntry, safeReaddir, safeStat } from "../fs-safe.js";
+import type { Graph } from "../graph.js";
 import {
   getSharedColocationIssue,
   isPrivateOutsideOwner,
   resolveLayerDirectories,
   type OwnershipContext,
 } from "./owners.js";
-import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS } from "./scope.js";
+import {
+  isSourceFile,
+  isTestFile,
+  matchesIgnore,
+  SKIP_DIRS,
+} from "../scope.js";
 import type { Subject } from "./subject.js";
 
 export interface SingletonDirectoryStats {

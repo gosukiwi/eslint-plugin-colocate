@@ -8,7 +8,7 @@ Separate rule, separate concept. `ownership` asks where a file belongs; `entry` 
 
 **Illegal crossing** ⟺ the target is not an entry file **and** some gate contains the target but not the importer. Report on the specifier node, naming the **innermost** such gate (`index` wins when a directory has two doors). Message id: `reachesPastEntry`.
 
-**Named door re-export** is a separate finding (`namedDoorReexport`): shape-only — it does not change gates, `isEntryFile`, or `isOwnerEntryFile`. Detection lives in `src/lib/named-door.ts`; `src/rules/entry.ts` is the adapter that reports it. Identity forms: `export … from`, import-then-export, and `require` / `import-equals` as sources. Type-only re-exports are skipped; package specifiers are skipped; wrap-around re-exports (re-exporting through the door again) are silent. CJS `module.exports` is out of scope ([#35](https://github.com/gosukiwi/eslint-plugin-colocate/issues/35)).
+**Named door re-export** is a separate finding (`namedDoorReexport`): shape-only — it does not change gates, `isEntryFile`, or `isOwnerEntryFile`. Detection lives in `src/lib/named-door/named-door.ts`; `src/rules/entry.ts` is the adapter that reports it. Identity forms: `export … from`, import-then-export, and `require` / `import-equals` as sources. Type-only re-exports are skipped; package specifiers are skipped; wrap-around re-exports (re-exporting through the door again) are silent. CJS `module.exports` is out of scope ([#35](https://github.com/gosukiwi/eslint-plugin-colocate/issues/35)).
 
 **Nested doors count.** Landing on any entry is legal, including a child module's. This is what makes innermost the right gate to name: any door is a legal terminus, so one report is always one edit, with no cascade.
 

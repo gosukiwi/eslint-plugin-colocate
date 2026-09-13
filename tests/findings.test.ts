@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { singletonDirectoryStats } from "../src/lib/findings.js";
+import { singletonDirectoryStats } from "../src/lib/findings/index.js";
 import { buildGraph } from "../src/lib/graph.js";
 
 const created: string[] = [];

@@ -1,6 +1,5 @@
 import type { Rule } from "eslint";
-import { ownershipFindings } from "../lib/findings.js";
-import { resolveSubject } from "../lib/subject.js";
+import { ownershipFindings, resolveSubject } from "../lib/findings/index.js";
 
 interface RuleOptions {
   layers?: string[];

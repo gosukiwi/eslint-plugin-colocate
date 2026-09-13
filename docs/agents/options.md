@@ -16,8 +16,6 @@ A layer's **immediate children** are public peer owners: they may have one consu
 
 Declaring a layer gives up private-file reporting for those children. That is the intended trade: a public peer with one consumer is indistinguishable from a file that should have been private.
 
-The repo's own self-lint declares `src/lib` a layer for this reason: that directory holds shared utilities imported across rules, so its immediate children are treated as public peers and a utility with a single current consumer is not reported as private to that consumer.
-
 `layers: ["*"]` matches every top-level directory under `root`. Do not treat that as a no-op.
 
 A layer directory created mid-session is picked up because it rebuilds the graph — but only once a file _inside it_ is the one being linted, which is a tracked issue rather than intended behaviour.

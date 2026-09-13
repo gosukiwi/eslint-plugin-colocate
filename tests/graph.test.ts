@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getGraph } from "../src/lib/graph-cache.js";
+import { getGraph } from "../src/lib/findings/index.js";
 import {
   buildGraph,
   canonicalGraphPath,

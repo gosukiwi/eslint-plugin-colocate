@@ -4,23 +4,26 @@ import { performance } from "node:perf_hooks";
 import { ESLint } from "eslint";
 import tsParser from "@typescript-eslint/parser";
 import plugin from "../src/index.js";
-import { ownershipFindings } from "../src/lib/findings.js";
-import { findCrossedGate, getGates } from "../src/lib/gates.js";
-import { getGraph } from "../src/lib/graph-cache.js";
+import {
+  getGraph,
+  getOwner,
+  getShells,
+  ownershipFindings,
+  type Subject,
+} from "../src/lib/findings/index.js";
+import { findCrossedGate, getGates } from "../src/lib/named-door/index.js";
 import {
   buildGraphFromFiles,
   canonicalGraphPath,
   getGraphResolutionSettings,
   type Graph,
 } from "../src/lib/graph.js";
-import { getOwner, getShells } from "../src/lib/owners.js";
 import { extractSpecifiers, parseSourceFile } from "../src/lib/parse.js";
 import {
   createResolutionSettings,
   resolveSpecifier,
 } from "../src/lib/resolve.js";
 import { safeReadFile } from "../src/lib/fs-safe.js";
-import type { Subject } from "../src/lib/subject.js";
 import { collectSourceFiles } from "../src/lib/walk.js";
 
 const CASE_DIR = path.join(fs.realpathSync("/tmp"), "fol-perf");

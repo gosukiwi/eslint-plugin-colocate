@@ -3,8 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { Rule } from "eslint";
 import { afterEach, describe, expect, it } from "vitest";
-import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
-import { resolveSubject, resolvedLintRoot } from "../src/lib/subject.js";
+import {
+  REVALIDATE_AFTER_MS,
+  resolveSubject,
+  resolvedLintRoot,
+} from "../src/lib/findings/index.js";
 
 const created: string[] = [];
 

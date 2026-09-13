@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getGates } from "../src/lib/gates.js";
-import { getGraph } from "../src/lib/graph-cache.js";
+import { getGates } from "../src/lib/named-door/index.js";
+import { getGraph } from "../src/lib/findings/index.js";
 import { buildGraph } from "../src/lib/graph.js";
 import { resolveSpecifier } from "../src/lib/resolve.js";
 

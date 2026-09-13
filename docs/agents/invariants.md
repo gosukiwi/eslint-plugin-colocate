@@ -11,7 +11,7 @@
 - `colocate/entry` takes no `layers` option and grants no shell or barrel exemption.
 - `entry` detection stays structural; do not reuse `isOwnerEntryFile` for it.
 - `isInsideDir` has **exactly one** implementation, `src/lib/paths.ts`. Do not reintroduce a local copy.
-- "Is this path in the model" is `isInGraphScope` in `src/lib/scope.ts`; the rule-side preamble is `resolveSubject` in `src/lib/subject.ts`. Use `subject.covers` for a resolved target.
+- "Is this path in the model" is `isInGraphScope` in `src/lib/scope.ts`; the rule-side preamble is `resolveSubject` in `src/lib/findings/index.ts`. Use `subject.covers` for a resolved target.
 - Two `Subject` asymmetries must survive tidying: `rootDir` is not realpathed; the linted file is not extension-tested again after realpath. Details: [architecture](architecture.md).
 - Every per-graph derived index goes through `derivedFromGraph`. Ask `graphHasFile`, never `new Set(graph.files)` per lint. Ask `graphFilesInDir` for files in a directory, never `graph.files.some/filter` by `path.dirname`.
 - `canonicalGraphPath` is applied at the `entry` importer/target and at `collectReExports` only. Do not spread it as a general rule. Details: [graph](graph.md).

@@ -1,9 +1,9 @@
 import path from "node:path";
-import { safeRealpath, safeStat } from "./fs-safe.js";
-import { buildGraphFromFiles, type Graph } from "./graph.js";
-import { findTsconfig } from "./resolve.js";
-import { isInGraphScope, isSourceFile } from "./scope.js";
-import { collectSourceFiles } from "./walk.js";
+import { safeRealpath, safeStat } from "../fs-safe.js";
+import { buildGraphFromFiles, type Graph } from "../graph.js";
+import { findTsconfig } from "../resolve.js";
+import { isInGraphScope, isSourceFile } from "../scope.js";
+import { collectSourceFiles } from "../walk.js";
 
 export type VisitToken = object;
 

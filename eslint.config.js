@@ -11,7 +11,7 @@ export default tseslint.config(
       colocate,
     },
     rules: {
-      "colocate/ownership": ["error", { root: "src", layers: ["src/lib"] }],
+      "colocate/ownership": ["error", { root: "src" }],
       "colocate/entry": ["error", { root: "src" }],
     },
   },

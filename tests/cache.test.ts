@@ -4,7 +4,7 @@ import path from "node:path";
 import { Linter } from "eslint";
 import tsParser from "@typescript-eslint/parser";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getGraph, REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
+import { getGraph, REVALIDATE_AFTER_MS } from "../src/lib/findings/index.js";
 import plugin from "../src/index.js";
 import {
   collectMessages,
