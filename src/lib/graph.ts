@@ -91,7 +91,7 @@ function noProjectResolutionSettings(): ResolutionSettings {
   };
 }
 
-export const getGraphResolutionSettings = derivedFromGraph((_graph: Graph) =>
+export const getGraphResolutionSettings = derivedFromGraph(() =>
   noProjectResolutionSettings(),
 );
 

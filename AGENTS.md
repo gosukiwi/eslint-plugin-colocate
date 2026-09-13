@@ -10,6 +10,8 @@ Consumer-facing usage lives in `README.md`.
 npm test
 npm run typecheck
 npm run build
+npm run lint                         # zero errors and warnings
+npm run format:check                 # Prettier gate; run `npm run format` to fix
 npm run crap                         # coverage + CRAP gate (fails above 15); run after changing src/
 npm run check:placement              # not part of npm test; run after ownership-model changes
 CONFIGS=40 npm run check:placement   # quicker pass

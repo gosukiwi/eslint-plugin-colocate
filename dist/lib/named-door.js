@@ -321,9 +321,7 @@ export function namedDoorReexports(filePath, graph, content) {
     if (!isNamedDoor(filePath)) {
         return [];
     }
-    const source = typeof content === "string"
-        ? content
-        : safeReadFile(filePath);
+    const source = typeof content === "string" ? content : safeReadFile(filePath);
     if (source === undefined) {
         return [];
     }

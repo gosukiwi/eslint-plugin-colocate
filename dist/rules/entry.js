@@ -1,6 +1,6 @@
 import path from "node:path";
 import { findCrossedGate } from "../lib/gates.js";
-import { canonicalGraphPath, getGraphResolutionSettings } from "../lib/graph.js";
+import { canonicalGraphPath, getGraphResolutionSettings, } from "../lib/graph.js";
 import { isNamedDoor, namedDoorReexports } from "../lib/named-door.js";
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
@@ -57,10 +57,7 @@ const rule = {
             return {};
         }
         const reexportsByPos = isNamedDoor(subject.file)
-            ? new Map(namedDoorReexports(subject.file, subject.graph(), context.sourceCode.getText()).map((reexport) => [
-                reexport.pos,
-                reexport.target,
-            ]))
+            ? new Map(namedDoorReexports(subject.file, subject.graph(), context.sourceCode.getText()).map((reexport) => [reexport.pos, reexport.target]))
             : undefined;
         const reportNamedDoorReexport = (node) => {
             if (reexportsByPos === undefined) {

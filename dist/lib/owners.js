@@ -55,7 +55,7 @@ function isNamespaceBarrel(filePath, graph) {
     if (basename !== "index") {
         return false;
     }
-    return (collectReExports(filePath, path.dirname(filePath), graph).length >= 2);
+    return collectReExports(filePath, path.dirname(filePath), graph).length >= 2;
 }
 function isOwnerEntryFile(file, dir, graph) {
     if (path.dirname(file) !== dir) {
