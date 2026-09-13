@@ -10,6 +10,7 @@ Consumer-facing usage lives in `README.md`.
 npm test
 npm run typecheck
 npm run build
+npm run crap                         # coverage + CRAP gate (fails above 15); run after changing src/
 npm run check:placement              # not part of npm test; run after ownership-model changes
 CONFIGS=40 npm run check:placement   # quicker pass
 SEED=<n> npm run check:placement     # reproduce a sweep
@@ -22,6 +23,7 @@ SEED=<n> npm run check:placement     # reproduce a sweep
 - Reports stay silent rather than throw. All filesystem reads go through `src/lib/fs-safe.ts`.
 - Do not reintroduce a `shells` option or a transitive / wholesale shell exemption.
 - `plugin.meta.version` is hardcoded in `src/index.ts`; bump it with `package.json`.
+- Keep `npm run crap` green (every function CRAP ≤ 15). Fix findings by splitting functions, not by deleting tests.
 - Do not parse or resolve with a second stack; reuse `parseSourceFile` and `resolveSpecifier`. "Is this file in the model" is `isInGraphScope` in `src/lib/scope.ts` and nowhere else.
 
 ## Read when relevant

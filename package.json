@@ -18,7 +18,8 @@
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check:placement": "vite-node scripts/check-placement.ts"
+    "check:placement": "vite-node scripts/check-placement.ts",
+    "crap": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=lcov && crap4ts src --coverage ./coverage/lcov.info --max-crap 15"
   },
   "peerDependencies": {
     "eslint": ">=9"
@@ -28,8 +29,10 @@
     "typescript": "^5 || ^6"
   },
   "devDependencies": {
+    "@gosukiwi/crap4ts": "^0.2.2",
     "@types/node": "^22.15.29",
     "@typescript-eslint/parser": "^8",
+    "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^10",
     "typescript": "^5 || ^6",
     "vitest": "^3"
