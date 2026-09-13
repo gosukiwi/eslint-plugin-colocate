@@ -1,6 +1,6 @@
 import path from "node:path";
 import { derivedFromGraph } from "./derived.js";
-import { safeReaddir, safeStat } from "./fs-safe.js";
+import { classifyDirEntry, safeReaddir, safeStat } from "./fs-safe.js";
 import { getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
 import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
 const singletonStatsByGraph = derivedFromGraph(() => new Map());
@@ -9,39 +9,33 @@ function isStylesheet(filePath) {
     const basename = path.basename(filePath);
     return STYLESHEET_EXTS.some((ext) => basename.endsWith(ext));
 }
+function countSubdirectorySourceFiles(entry, fullPath, rootDir, ignore) {
+    if (SKIP_DIRS.has(entry.name)) {
+        return 0;
+    }
+    return countSourceFilesRecursive(fullPath, rootDir, ignore);
+}
+function countEntrySourceFiles(entry, dir, rootDir, ignore) {
+    const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(rootDir, fullPath);
+    if (matchesIgnore(relPath, ignore)) {
+        return 0;
+    }
+    const kind = classifyDirEntry(entry, fullPath);
+    if (kind === "directory") {
+        return countSubdirectorySourceFiles(entry, fullPath, rootDir, ignore);
+    }
+    if (kind === "file" && isSourceFile(fullPath) && !isTestFile(relPath)) {
+        return 1;
+    }
+    return 0;
+}
 function countSourceFilesRecursive(dir, rootDir, ignore) {
     let sourceCount = 0;
     for (const entry of safeReaddir(dir)) {
-        const fullPath = path.join(dir, entry.name);
-        const relPath = path.relative(rootDir, fullPath);
-        if (matchesIgnore(relPath, ignore)) {
-            continue;
-        }
-        const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
-        const isDirectory = entry.isSymbolicLink()
-            ? (stat?.isDirectory() ?? false)
-            : entry.isDirectory();
-        if (isDirectory) {
-            if (SKIP_DIRS.has(entry.name)) {
-                continue;
-            }
-            sourceCount += countSourceFilesRecursive(fullPath, rootDir, ignore);
-            if (sourceCount > 1) {
-                return sourceCount;
-            }
-            continue;
-        }
-        const isFile = entry.isSymbolicLink()
-            ? (stat?.isFile() ?? false)
-            : entry.isFile();
-        if (!isFile) {
-            continue;
-        }
-        if (isSourceFile(fullPath) && !isTestFile(relPath)) {
-            sourceCount += 1;
-            if (sourceCount > 1) {
-                return sourceCount;
-            }
+        sourceCount += countEntrySourceFiles(entry, dir, rootDir, ignore);
+        if (sourceCount > 1) {
+            return sourceCount;
         }
     }
     return sourceCount;

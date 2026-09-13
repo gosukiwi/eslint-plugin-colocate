@@ -1,12 +1,8 @@
 import path from "node:path";
-import { safeReaddir, safeRealpath, safeStat } from "./fs-safe.js";
+import { classifyDirEntry, safeReaddir, safeRealpath, safeStat, } from "./fs-safe.js";
 import { isAtOrInsideDir } from "./paths.js";
 import { isExcludedPath, isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
-function walkDir(dir, rootDir, ignoreGlobs, files, dirStamps, ancestorRealDirs, linkedRealDirs, behindLink) {
-    const realDir = safeRealpath(dir);
-    if (realDir === undefined || ancestorRealDirs.has(realDir)) {
-        return;
-    }
+function stampDir(dir, dirStamps) {
     const stat = safeStat(dir);
     if (stat !== undefined) {
         dirStamps.set(dir, {
@@ -15,52 +11,79 @@ function walkDir(dir, rootDir, ignoreGlobs, files, dirStamps, ancestorRealDirs, 
             size: stat.size,
         });
     }
+}
+function resolveWalkRealPath(fullPath, followLink, rootDir, ignoreGlobs) {
+    if (!followLink) {
+        return fullPath;
+    }
+    const realPath = safeRealpath(fullPath);
+    if (realPath === undefined || realPath === fullPath) {
+        return realPath;
+    }
+    if (!isAtOrInsideDir(realPath, rootDir)) {
+        return undefined;
+    }
+    if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
+        return undefined;
+    }
+    return realPath;
+}
+function visitDirectory(fullPath, realPath, isLink, ctx, nested) {
+    if (isLink) {
+        if (ctx.linkedRealDirs.has(realPath)) {
+            return;
+        }
+        ctx.linkedRealDirs.add(realPath);
+    }
+    walkDir(fullPath, ctx.rootDir, ctx.ignoreGlobs, ctx.files, ctx.dirStamps, nested, ctx.linkedRealDirs, ctx.behindLink || isLink);
+}
+function collectFileEntry(fullPath, realPath, relPath, isLink, files) {
+    if (!isSourceFile(fullPath) || isTestFile(relPath)) {
+        return;
+    }
+    files.add(realPath);
+    if (isLink && fullPath !== realPath) {
+        files.add(fullPath);
+    }
+}
+function visitEntry(entry, dir, ctx, nested) {
+    const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(ctx.rootDir, fullPath);
+    const kind = classifyDirEntry(entry, fullPath);
+    if (kind === "other") {
+        return;
+    }
+    if (SKIP_DIRS.has(entry.name) || matchesIgnore(relPath, ctx.ignoreGlobs)) {
+        return;
+    }
+    const isLink = entry.isSymbolicLink();
+    const realPath = resolveWalkRealPath(fullPath, isLink || ctx.behindLink, ctx.rootDir, ctx.ignoreGlobs);
+    if (realPath === undefined) {
+        return;
+    }
+    if (kind === "directory") {
+        visitDirectory(fullPath, realPath, isLink, ctx, nested);
+        return;
+    }
+    collectFileEntry(fullPath, realPath, relPath, isLink, ctx.files);
+}
+function walkDir(dir, rootDir, ignoreGlobs, files, dirStamps, ancestorRealDirs, linkedRealDirs, behindLink) {
+    const realDir = safeRealpath(dir);
+    if (realDir === undefined || ancestorRealDirs.has(realDir)) {
+        return;
+    }
+    stampDir(dir, dirStamps);
     const nested = new Set(ancestorRealDirs).add(realDir);
+    const ctx = {
+        rootDir,
+        ignoreGlobs,
+        files,
+        dirStamps,
+        linkedRealDirs,
+        behindLink,
+    };
     for (const entry of safeReaddir(dir)) {
-        const fullPath = path.join(dir, entry.name);
-        const relPath = path.relative(rootDir, fullPath);
-        const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
-        const isDirectory = entry.isSymbolicLink()
-            ? (stat?.isDirectory() ?? false)
-            : entry.isDirectory();
-        const isFile = entry.isSymbolicLink()
-            ? (stat?.isFile() ?? false)
-            : entry.isFile();
-        if (!isDirectory && !isFile) {
-            continue;
-        }
-        if (SKIP_DIRS.has(entry.name) || matchesIgnore(relPath, ignoreGlobs)) {
-            continue;
-        }
-        const isLink = entry.isSymbolicLink();
-        const realPath = isLink || behindLink ? safeRealpath(fullPath) : fullPath;
-        if (realPath === undefined) {
-            continue;
-        }
-        if (realPath !== fullPath) {
-            if (!isAtOrInsideDir(realPath, rootDir)) {
-                continue;
-            }
-            if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
-                continue;
-            }
-        }
-        if (isDirectory) {
-            if (isLink) {
-                if (linkedRealDirs.has(realPath)) {
-                    continue;
-                }
-                linkedRealDirs.add(realPath);
-            }
-            walkDir(fullPath, rootDir, ignoreGlobs, files, dirStamps, nested, linkedRealDirs, behindLink || isLink);
-            continue;
-        }
-        if (isSourceFile(fullPath) && !isTestFile(relPath)) {
-            files.add(realPath);
-            if (isLink && fullPath !== realPath) {
-                files.add(fullPath);
-            }
-        }
+        visitEntry(entry, dir, ctx, nested);
     }
 }
 export function collectSourceFiles(resolvedRoot, ignoreGlobs) {

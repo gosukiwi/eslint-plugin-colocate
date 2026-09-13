@@ -1,5 +1,11 @@
+import type { Dirent } from "node:fs";
 import path from "node:path";
-import { safeReaddir, safeRealpath, safeStat } from "./fs-safe.js";
+import {
+  classifyDirEntry,
+  safeReaddir,
+  safeRealpath,
+  safeStat,
+} from "./fs-safe.js";
 import { isAtOrInsideDir } from "./paths.js";
 import {
   isExcludedPath,
@@ -9,20 +15,13 @@ import {
   SKIP_DIRS,
 } from "./scope.js";
 
-function walkDir(
-  dir: string,
-  rootDir: string,
-  ignoreGlobs: string[],
-  files: Set<string>,
-  dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>,
-  ancestorRealDirs: Set<string>,
-  linkedRealDirs: Set<string>,
-  behindLink: boolean,
-): void {
-  const realDir = safeRealpath(dir);
-  if (realDir === undefined || ancestorRealDirs.has(realDir)) {
-    return;
-  }
+interface DirStamp {
+  mtimeMs: number;
+  ctimeMs: number;
+  size: number;
+}
+
+function stampDir(dir: string, dirStamps: Map<string, DirStamp>): void {
   const stat = safeStat(dir);
   if (stat !== undefined) {
     dirStamps.set(dir, {
@@ -31,67 +30,138 @@ function walkDir(
       size: stat.size,
     });
   }
+}
+
+function resolveWalkRealPath(
+  fullPath: string,
+  followLink: boolean,
+  rootDir: string,
+  ignoreGlobs: string[],
+): string | undefined {
+  if (!followLink) {
+    return fullPath;
+  }
+  const realPath = safeRealpath(fullPath);
+  if (realPath === undefined || realPath === fullPath) {
+    return realPath;
+  }
+  if (!isAtOrInsideDir(realPath, rootDir)) {
+    return undefined;
+  }
+  if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
+    return undefined;
+  }
+  return realPath;
+}
+
+interface WalkContext {
+  rootDir: string;
+  ignoreGlobs: string[];
+  files: Set<string>;
+  dirStamps: Map<string, DirStamp>;
+  linkedRealDirs: Set<string>;
+  behindLink: boolean;
+}
+
+function visitDirectory(
+  fullPath: string,
+  realPath: string,
+  isLink: boolean,
+  ctx: WalkContext,
+  nested: Set<string>,
+): void {
+  if (isLink) {
+    if (ctx.linkedRealDirs.has(realPath)) {
+      return;
+    }
+    ctx.linkedRealDirs.add(realPath);
+  }
+  walkDir(
+    fullPath,
+    ctx.rootDir,
+    ctx.ignoreGlobs,
+    ctx.files,
+    ctx.dirStamps,
+    nested,
+    ctx.linkedRealDirs,
+    ctx.behindLink || isLink,
+  );
+}
+
+function collectFileEntry(
+  fullPath: string,
+  realPath: string,
+  relPath: string,
+  isLink: boolean,
+  files: Set<string>,
+): void {
+  if (!isSourceFile(fullPath) || isTestFile(relPath)) {
+    return;
+  }
+  files.add(realPath);
+  if (isLink && fullPath !== realPath) {
+    files.add(fullPath);
+  }
+}
+
+function visitEntry(
+  entry: Dirent,
+  dir: string,
+  ctx: WalkContext,
+  nested: Set<string>,
+): void {
+  const fullPath = path.join(dir, entry.name);
+  const relPath = path.relative(ctx.rootDir, fullPath);
+  const kind = classifyDirEntry(entry, fullPath);
+  if (kind === "other") {
+    return;
+  }
+  if (SKIP_DIRS.has(entry.name) || matchesIgnore(relPath, ctx.ignoreGlobs)) {
+    return;
+  }
+  const isLink = entry.isSymbolicLink();
+  const realPath = resolveWalkRealPath(
+    fullPath,
+    isLink || ctx.behindLink,
+    ctx.rootDir,
+    ctx.ignoreGlobs,
+  );
+  if (realPath === undefined) {
+    return;
+  }
+  if (kind === "directory") {
+    visitDirectory(fullPath, realPath, isLink, ctx, nested);
+    return;
+  }
+  collectFileEntry(fullPath, realPath, relPath, isLink, ctx.files);
+}
+
+function walkDir(
+  dir: string,
+  rootDir: string,
+  ignoreGlobs: string[],
+  files: Set<string>,
+  dirStamps: Map<string, DirStamp>,
+  ancestorRealDirs: Set<string>,
+  linkedRealDirs: Set<string>,
+  behindLink: boolean,
+): void {
+  const realDir = safeRealpath(dir);
+  if (realDir === undefined || ancestorRealDirs.has(realDir)) {
+    return;
+  }
+  stampDir(dir, dirStamps);
   const nested = new Set(ancestorRealDirs).add(realDir);
-
+  const ctx: WalkContext = {
+    rootDir,
+    ignoreGlobs,
+    files,
+    dirStamps,
+    linkedRealDirs,
+    behindLink,
+  };
   for (const entry of safeReaddir(dir)) {
-    const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(rootDir, fullPath);
-
-    const stat = entry.isSymbolicLink() ? safeStat(fullPath) : undefined;
-    const isDirectory = entry.isSymbolicLink()
-      ? (stat?.isDirectory() ?? false)
-      : entry.isDirectory();
-    const isFile = entry.isSymbolicLink()
-      ? (stat?.isFile() ?? false)
-      : entry.isFile();
-
-    if (!isDirectory && !isFile) {
-      continue;
-    }
-    if (SKIP_DIRS.has(entry.name) || matchesIgnore(relPath, ignoreGlobs)) {
-      continue;
-    }
-
-    const isLink = entry.isSymbolicLink();
-    const realPath = isLink || behindLink ? safeRealpath(fullPath) : fullPath;
-    if (realPath === undefined) {
-      continue;
-    }
-    if (realPath !== fullPath) {
-      if (!isAtOrInsideDir(realPath, rootDir)) {
-        continue;
-      }
-      if (isExcludedPath(path.relative(rootDir, realPath), ignoreGlobs)) {
-        continue;
-      }
-    }
-
-    if (isDirectory) {
-      if (isLink) {
-        if (linkedRealDirs.has(realPath)) {
-          continue;
-        }
-        linkedRealDirs.add(realPath);
-      }
-      walkDir(
-        fullPath,
-        rootDir,
-        ignoreGlobs,
-        files,
-        dirStamps,
-        nested,
-        linkedRealDirs,
-        behindLink || isLink,
-      );
-      continue;
-    }
-
-    if (isSourceFile(fullPath) && !isTestFile(relPath)) {
-      files.add(realPath);
-      if (isLink && fullPath !== realPath) {
-        files.add(fullPath);
-      }
-    }
+    visitEntry(entry, dir, ctx, nested);
   }
 }
 
@@ -100,13 +170,10 @@ export function collectSourceFiles(
   ignoreGlobs: string[],
 ): {
   files: string[];
-  dirStamps: Map<string, { mtimeMs: number; ctimeMs: number; size: number }>;
+  dirStamps: Map<string, DirStamp>;
 } {
   const collected = new Set<string>();
-  const dirStamps = new Map<
-    string,
-    { mtimeMs: number; ctimeMs: number; size: number }
-  >();
+  const dirStamps = new Map<string, DirStamp>();
   walkDir(
     resolvedRoot,
     resolvedRoot,

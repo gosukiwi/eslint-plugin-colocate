@@ -31,3 +31,32 @@ export function safeReaddir(dir: string): fs.Dirent[] {
     return [];
   }
 }
+
+export type DirEntryKind = "directory" | "file" | "other";
+
+export function symlinkEntryKind(fullPath: string): DirEntryKind {
+  const stat = safeStat(fullPath);
+  if (stat?.isDirectory() ?? false) {
+    return "directory";
+  }
+  if (stat?.isFile() ?? false) {
+    return "file";
+  }
+  return "other";
+}
+
+export function classifyDirEntry(
+  entry: fs.Dirent,
+  fullPath: string,
+): DirEntryKind {
+  if (entry.isSymbolicLink()) {
+    return symlinkEntryKind(fullPath);
+  }
+  if (entry.isDirectory()) {
+    return "directory";
+  }
+  if (entry.isFile()) {
+    return "file";
+  }
+  return "other";
+}

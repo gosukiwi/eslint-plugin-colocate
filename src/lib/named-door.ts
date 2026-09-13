@@ -125,6 +125,309 @@ function originFromBindingName(
   return undefined;
 }
 
+interface DoorScan {
+  resolve: (specifier: string) => string | undefined;
+  origins: Map<string, string>;
+  results: { target: string; pos: number }[];
+  sourceFile: ts.SourceFile;
+  requireIsCjs: boolean;
+}
+
+function recordClauseBindings(
+  clause: ts.ImportClause,
+  target: string,
+  origins: Map<string, string>,
+): void {
+  if (clause.name !== undefined) {
+    origins.set(clause.name.text, target);
+  }
+  const bindings = clause.namedBindings;
+  if (bindings === undefined) {
+    return;
+  }
+  if (ts.isNamespaceImport(bindings)) {
+    origins.set(bindings.name.text, target);
+    return;
+  }
+  if (ts.isNamedImports(bindings)) {
+    for (const element of bindings.elements) {
+      if (!element.isTypeOnly) {
+        origins.set(element.name.text, target);
+      }
+    }
+  }
+}
+
+function recordImportOrigins(node: ts.ImportDeclaration, scan: DoorScan): void {
+  const clause = node.importClause;
+  if (clause === undefined || clause.isTypeOnly) {
+    return;
+  }
+  const specifier = stringLiteralText(node.moduleSpecifier);
+  if (specifier === undefined) {
+    return;
+  }
+  const target = scan.resolve(specifier);
+  if (target === undefined) {
+    return;
+  }
+  recordClauseBindings(clause, target, scan.origins);
+}
+
+function recordImportEqualsOrigins(
+  node: ts.ImportEqualsDeclaration,
+  scan: DoorScan,
+): void {
+  if (
+    !ts.isExternalModuleReference(node.moduleReference) ||
+    !ts.isIdentifier(node.name)
+  ) {
+    return;
+  }
+  const specifier = stringLiteralText(node.moduleReference.expression);
+  if (specifier === undefined) {
+    return;
+  }
+  const target = scan.resolve(specifier);
+  if (target === undefined) {
+    return;
+  }
+  scan.origins.set(node.name.text, target);
+}
+
+function recordRequireDeclaration(
+  declaration: ts.VariableDeclaration,
+  call: ts.CallExpression,
+  scan: DoorScan,
+): void {
+  if (!isRealRequire(call, scan.requireIsCjs)) {
+    return;
+  }
+  const specifier = stringLiteralText(call.arguments[0]);
+  if (specifier === undefined) {
+    return;
+  }
+  const target = scan.resolve(specifier);
+  if (target === undefined) {
+    return;
+  }
+  bindRequireNames(declaration.name, target, scan.origins);
+}
+
+function recordAliasDeclaration(
+  declaration: ts.VariableDeclaration,
+  peeled: ts.Expression,
+  scan: DoorScan,
+): void {
+  if (!ts.isIdentifier(declaration.name) || !ts.isIdentifier(peeled)) {
+    return;
+  }
+  const target = scan.origins.get(peeled.text);
+  if (target === undefined) {
+    return;
+  }
+  scan.origins.set(declaration.name.text, target);
+}
+
+function recordDeclarationOrigin(
+  declaration: ts.VariableDeclaration,
+  scan: DoorScan,
+): void {
+  if (declaration.initializer === undefined) {
+    return;
+  }
+  const peeled = peelValueExpression(declaration.initializer);
+  if (ts.isCallExpression(peeled)) {
+    recordRequireDeclaration(declaration, peeled, scan);
+    return;
+  }
+  recordAliasDeclaration(declaration, peeled, scan);
+}
+
+function recordVariableOrigins(
+  node: ts.VariableStatement,
+  scan: DoorScan,
+): void {
+  for (const declaration of node.declarationList.declarations) {
+    recordDeclarationOrigin(declaration, scan);
+  }
+}
+
+function collectOrigins(node: ts.Node, scan: DoorScan): void {
+  if (ts.isImportDeclaration(node)) {
+    recordImportOrigins(node, scan);
+    return;
+  }
+  if (ts.isImportEqualsDeclaration(node)) {
+    recordImportEqualsOrigins(node, scan);
+    return;
+  }
+  if (ts.isVariableStatement(node)) {
+    recordVariableOrigins(node, scan);
+  }
+}
+
+function pushExportTarget(
+  scan: DoorScan,
+  node: ts.Node,
+  target: string,
+): void {
+  scan.results.push({ target, pos: node.getStart(scan.sourceFile) });
+}
+
+function firstValueNamedExportTarget(
+  elements: ts.NodeArray<ts.ExportSpecifier>,
+  origins: Map<string, string>,
+): string | undefined {
+  for (const element of elements) {
+    if (element.isTypeOnly) {
+      continue;
+    }
+    const localName =
+      (element.propertyName !== undefined &&
+      ts.isIdentifier(element.propertyName)
+        ? element.propertyName.text
+        : undefined) ?? element.name.text;
+    const target = origins.get(localName);
+    if (target !== undefined) {
+      return target;
+    }
+  }
+  return undefined;
+}
+
+function recordModuleReexport(
+  node: ts.ExportDeclaration,
+  scan: DoorScan,
+): void {
+  if (
+    node.moduleSpecifier === undefined ||
+    !ts.isStringLiteralLike(node.moduleSpecifier) ||
+    !isValueReexport(node)
+  ) {
+    return;
+  }
+  const target = scan.resolve(node.moduleSpecifier.text);
+  if (target === undefined) {
+    return;
+  }
+  pushExportTarget(scan, node, target);
+}
+
+function recordLocalExport(node: ts.ExportDeclaration, scan: DoorScan): void {
+  if (
+    node.exportClause === undefined ||
+    !ts.isNamedExports(node.exportClause) ||
+    node.isTypeOnly
+  ) {
+    return;
+  }
+  const target = firstValueNamedExportTarget(
+    node.exportClause.elements,
+    scan.origins,
+  );
+  if (target === undefined) {
+    return;
+  }
+  pushExportTarget(scan, node, target);
+}
+
+function recordExportDeclaration(
+  node: ts.ExportDeclaration,
+  scan: DoorScan,
+): void {
+  if (node.moduleSpecifier !== undefined) {
+    recordModuleReexport(node, scan);
+    return;
+  }
+  recordLocalExport(node, scan);
+}
+
+function recordIdentifierExport(
+  node: ts.ExportAssignment,
+  name: string,
+  scan: DoorScan,
+): void {
+  const target = scan.origins.get(name);
+  if (target === undefined) {
+    return;
+  }
+  pushExportTarget(scan, node, target);
+}
+
+function recordRequireExport(
+  node: ts.ExportAssignment,
+  call: ts.CallExpression,
+  scan: DoorScan,
+): void {
+  if (!isRealRequire(call, scan.requireIsCjs)) {
+    return;
+  }
+  const specifier = stringLiteralText(call.arguments[0]);
+  if (specifier === undefined) {
+    return;
+  }
+  const target = scan.resolve(specifier);
+  if (target === undefined) {
+    return;
+  }
+  pushExportTarget(scan, node, target);
+}
+
+function recordExportAssignment(
+  node: ts.ExportAssignment,
+  scan: DoorScan,
+): void {
+  const peeled = peelValueExpression(node.expression);
+  if (ts.isIdentifier(peeled)) {
+    recordIdentifierExport(node, peeled.text, scan);
+    return;
+  }
+  if (ts.isCallExpression(peeled)) {
+    recordRequireExport(node, peeled, scan);
+  }
+}
+
+function recordExportedImportEquals(node: ts.Node, scan: DoorScan): void {
+  if (!ts.isImportEqualsDeclaration(node) || !ts.isIdentifier(node.name)) {
+    return;
+  }
+  const target = scan.origins.get(node.name.text);
+  if (target === undefined) {
+    return;
+  }
+  pushExportTarget(scan, node, target);
+}
+
+function recordExportedVariable(node: ts.Node, scan: DoorScan): void {
+  if (!ts.isVariableStatement(node)) {
+    return;
+  }
+  for (const declaration of node.declarationList.declarations) {
+    const target = originFromBindingName(declaration.name, scan.origins);
+    if (target === undefined) {
+      continue;
+    }
+    pushExportTarget(scan, node, target);
+    return;
+  }
+}
+
+function checkExports(node: ts.Node, scan: DoorScan): void {
+  if (ts.isExportDeclaration(node)) {
+    recordExportDeclaration(node, scan);
+    return;
+  }
+  if (ts.isExportAssignment(node)) {
+    recordExportAssignment(node, scan);
+    return;
+  }
+  if (hasExportModifier(node)) {
+    recordExportedImportEquals(node, scan);
+    recordExportedVariable(node, scan);
+  }
+}
+
 export function namedDoorReexports(
   filePath: string,
   graph: Graph,
@@ -158,174 +461,19 @@ export function namedDoorReexports(
     return target;
   };
 
-  const firstValueNamedExportTarget = (
-    elements: ts.NodeArray<ts.ExportSpecifier>,
-  ): string | undefined => {
-    for (const element of elements) {
-      if (element.isTypeOnly) {
-        continue;
-      }
-      const localName =
-        (element.propertyName !== undefined &&
-        ts.isIdentifier(element.propertyName)
-          ? element.propertyName.text
-          : undefined) ?? element.name.text;
-      const target = origins.get(localName);
-      if (target !== undefined) {
-        return target;
-      }
-    }
-    return undefined;
-  };
-
-  const collectOrigins = (node: ts.Node, requireIsCjs: boolean): void => {
-    if (
-      ts.isImportDeclaration(node) &&
-      node.importClause !== undefined &&
-      !node.importClause.isTypeOnly
-    ) {
-      const specifier = stringLiteralText(node.moduleSpecifier);
-      if (specifier !== undefined) {
-        const target = resolveInGraph(specifier);
-        if (target !== undefined) {
-          const clause = node.importClause;
-          if (clause.name !== undefined) {
-            origins.set(clause.name.text, target);
-          }
-          const bindings = clause.namedBindings;
-          if (bindings !== undefined) {
-            if (ts.isNamespaceImport(bindings)) {
-              origins.set(bindings.name.text, target);
-            } else if (ts.isNamedImports(bindings)) {
-              for (const element of bindings.elements) {
-                if (!element.isTypeOnly) {
-                  origins.set(element.name.text, target);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      ts.isIdentifier(node.name)
-    ) {
-      const specifier = stringLiteralText(node.moduleReference.expression);
-      if (specifier !== undefined) {
-        const target = resolveInGraph(specifier);
-        if (target !== undefined) {
-          origins.set(node.name.text, target);
-        }
-      }
-    }
-
-    if (ts.isVariableStatement(node)) {
-      for (const declaration of node.declarationList.declarations) {
-        if (declaration.initializer !== undefined) {
-          const peeled = peelValueExpression(declaration.initializer);
-          if (
-            ts.isCallExpression(peeled) &&
-            isRealRequire(peeled, requireIsCjs)
-          ) {
-            const specifier = stringLiteralText(peeled.arguments[0]);
-            if (specifier !== undefined) {
-              const target = resolveInGraph(specifier);
-              if (target !== undefined) {
-                bindRequireNames(declaration.name, target, origins);
-              }
-            }
-          } else if (
-            ts.isIdentifier(declaration.name) &&
-            ts.isIdentifier(peeled)
-          ) {
-            const target = origins.get(peeled.text);
-            if (target !== undefined) {
-              origins.set(declaration.name.text, target);
-            }
-          }
-        }
-      }
-    }
-  };
-
-  const checkExports = (node: ts.Node, requireIsCjs: boolean): void => {
-    if (ts.isExportDeclaration(node)) {
-      if (
-        node.moduleSpecifier !== undefined &&
-        ts.isStringLiteralLike(node.moduleSpecifier) &&
-        isValueReexport(node)
-      ) {
-        const target = resolveInGraph(node.moduleSpecifier.text);
-        if (target !== undefined) {
-          results.push({ target, pos: node.getStart(sourceFile) });
-        }
-        return;
-      }
-      if (
-        node.moduleSpecifier === undefined &&
-        node.exportClause !== undefined &&
-        ts.isNamedExports(node.exportClause) &&
-        !node.isTypeOnly
-      ) {
-        const target = firstValueNamedExportTarget(node.exportClause.elements);
-        if (target !== undefined) {
-          results.push({ target, pos: node.getStart(sourceFile) });
-        }
-        return;
-      }
-    }
-
-    if (ts.isExportAssignment(node)) {
-      const peeled = peelValueExpression(node.expression);
-      if (ts.isIdentifier(peeled)) {
-        const target = origins.get(peeled.text);
-        if (target !== undefined) {
-          results.push({ target, pos: node.getStart(sourceFile) });
-        }
-        return;
-      }
-      if (ts.isCallExpression(peeled) && isRealRequire(peeled, requireIsCjs)) {
-        const specifier = stringLiteralText(peeled.arguments[0]);
-        if (specifier !== undefined) {
-          const target = resolveInGraph(specifier);
-          if (target !== undefined) {
-            results.push({ target, pos: node.getStart(sourceFile) });
-          }
-        }
-      }
-      return;
-    }
-
-    if (hasExportModifier(node) && ts.isImportEqualsDeclaration(node)) {
-      if (ts.isIdentifier(node.name)) {
-        const target = origins.get(node.name.text);
-        if (target !== undefined) {
-          results.push({ target, pos: node.getStart(sourceFile) });
-        }
-        return;
-      }
-    }
-
-    if (hasExportModifier(node) && ts.isVariableStatement(node)) {
-      for (const declaration of node.declarationList.declarations) {
-        const target = originFromBindingName(declaration.name, origins);
-        if (target !== undefined) {
-          results.push({ target, pos: node.getStart(sourceFile) });
-          return;
-        }
-      }
-    }
-  };
-
   const requireIsCjs = !scopeBindsRequire(sourceFile);
+  const scan: DoorScan = {
+    resolve: resolveInGraph,
+    origins,
+    results,
+    sourceFile,
+    requireIsCjs,
+  };
   for (const statement of sourceFile.statements) {
-    collectOrigins(statement, requireIsCjs);
+    collectOrigins(statement, scan);
   }
   for (const statement of sourceFile.statements) {
-    checkExports(statement, requireIsCjs);
+    checkExports(statement, scan);
   }
   return results;
 }

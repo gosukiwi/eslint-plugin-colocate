@@ -152,6 +152,32 @@ function buildImports(graph: Graph): Map<string, string[]> {
   return imports;
 }
 
+function popComponent(
+  stack: string[],
+  onStack: Set<string>,
+  ids: Map<string, number>,
+  id: number,
+  root: string,
+): void {
+  while (true) {
+    const member = stack.pop();
+    if (member === undefined) {
+      break;
+    }
+    onStack.delete(member);
+    ids.set(member, id);
+    if (member === root) {
+      break;
+    }
+  }
+}
+
+interface TarjanFrame {
+  node: string;
+  edges: string[];
+  next: number;
+}
+
 function stronglyConnectedIds(
   nodes: readonly string[],
   edgesOf: (node: string) => string[],
@@ -164,10 +190,7 @@ function stronglyConnectedIds(
   let counter = 0;
   let nextId = 0;
 
-  const push = (
-    node: string,
-    frames: { node: string; edges: string[]; next: number }[],
-  ): void => {
+  const push = (node: string, frames: TarjanFrame[]): void => {
     index.set(node, counter);
     low.set(node, counter);
     counter += 1;
@@ -176,12 +199,45 @@ function stronglyConnectedIds(
     frames.push({ node, edges: edgesOf(node), next: 0 });
   };
 
+  const visitEdge = (
+    frame: TarjanFrame,
+    child: string,
+    frames: TarjanFrame[],
+  ): void => {
+    if (!index.has(child)) {
+      push(child, frames);
+      return;
+    }
+    if (onStack.has(child)) {
+      low.set(
+        frame.node,
+        Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0),
+      );
+    }
+  };
+
+  const finishFrame = (frame: TarjanFrame, frames: TarjanFrame[]): void => {
+    frames.pop();
+    const parent = frames[frames.length - 1];
+    if (parent !== undefined) {
+      low.set(
+        parent.node,
+        Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0),
+      );
+    }
+    if (low.get(frame.node) === index.get(frame.node)) {
+      const id = nextId;
+      nextId += 1;
+      popComponent(stack, onStack, ids, id, frame.node);
+    }
+  };
+
   for (const start of nodes) {
     if (index.has(start)) {
       continue;
     }
 
-    const frames: { node: string; edges: string[]; next: number }[] = [];
+    const frames: TarjanFrame[] = [];
     push(start, frames);
 
     while (frames.length > 0) {
@@ -190,40 +246,11 @@ function stronglyConnectedIds(
       if (frame.next < frame.edges.length) {
         const child = frame.edges[frame.next];
         frame.next += 1;
-        if (!index.has(child)) {
-          push(child, frames);
-        } else if (onStack.has(child)) {
-          low.set(
-            frame.node,
-            Math.min(low.get(frame.node) ?? 0, index.get(child) ?? 0),
-          );
-        }
+        visitEdge(frame, child, frames);
         continue;
       }
 
-      frames.pop();
-      const parent = frames[frames.length - 1];
-      if (parent !== undefined) {
-        low.set(
-          parent.node,
-          Math.min(low.get(parent.node) ?? 0, low.get(frame.node) ?? 0),
-        );
-      }
-      if (low.get(frame.node) === index.get(frame.node)) {
-        const id = nextId;
-        nextId += 1;
-        while (true) {
-          const member = stack.pop();
-          if (member === undefined) {
-            break;
-          }
-          onStack.delete(member);
-          ids.set(member, id);
-          if (member === frame.node) {
-            break;
-          }
-        }
-      }
+      finishFrame(frame, frames);
     }
   }
 
