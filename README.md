@@ -9,7 +9,7 @@ The folders become a map of who uses what. Moving a file has a right answer. Rev
 ## Install
 
 ```bash
-npm install -D gosukiwi/eslint-plugin-colocate
+npm install -D @gosukiwi/eslint-plugin-colocate
 ```
 
 Requires Node 20+ and ESLint 9+.
@@ -17,7 +17,7 @@ Requires Node 20+ and ESLint 9+.
 ## Usage
 
 ```js
-import colocate from "eslint-plugin-colocate";
+import colocate from "@gosukiwi/eslint-plugin-colocate";
 
 export default [
   {

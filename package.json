@@ -1,6 +1,11 @@
 {
-  "name": "eslint-plugin-colocate",
+  "name": "@gosukiwi/eslint-plugin-colocate",
   "version": "0.0.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "author": "Federico Ramirez",
   "type": "module",
   "engines": {
     "node": ">=20"
