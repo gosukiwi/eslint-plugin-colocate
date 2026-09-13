@@ -43,6 +43,26 @@ function bindsName(name: ts.BindingName, target: string): boolean {
   );
 }
 
+function declarationBindsRequire(
+  declaration: ts.VariableDeclaration,
+): boolean {
+  if (!bindsName(declaration.name, REQUIRE)) {
+    return false;
+  }
+  return !tsIsCreateRequireCall(declaration.initializer);
+}
+
+function statementBindsRequire(statement: ts.Statement): boolean {
+  if (ts.isVariableStatement(statement)) {
+    return statement.declarationList.declarations.some(
+      declarationBindsRequire,
+    );
+  }
+  return (
+    ts.isFunctionDeclaration(statement) && statement.name?.text === REQUIRE
+  );
+}
+
 export function scopeBindsRequire(node: ts.Node): boolean {
   if (ts.isFunctionLike(node)) {
     if (node.parameters.some((p) => bindsName(p.name, REQUIRE))) {
@@ -59,27 +79,7 @@ export function scopeBindsRequire(node: ts.Node): boolean {
     return false;
   }
 
-  for (const statement of statements) {
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (!bindsName(declaration.name, REQUIRE)) {
-          continue;
-        }
-        if (tsIsCreateRequireCall(declaration.initializer)) {
-          continue;
-        }
-        return true;
-      }
-    }
-    if (
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text === REQUIRE
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+  return statements.some(statementBindsRequire);
 }
 
 export function requireIsShadowed(
