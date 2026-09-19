@@ -1,4 +1,4 @@
-import type { Graph } from "./graph.js";
+import type { Graph } from "../graph.js";
 export declare function isEntryFile(filePath: string): boolean;
 export declare const getGates: ((graph: Graph) => ReadonlyMap<string, string>) & {
     prime: (graph: Graph, value: ReadonlyMap<string, string>) => void;

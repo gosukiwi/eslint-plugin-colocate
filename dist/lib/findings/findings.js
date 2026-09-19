@@ -1,8 +1,8 @@
 import path from "node:path";
-import { derivedFromGraph } from "./derived.js";
-import { classifyDirEntry, safeReaddir, safeStat } from "./fs-safe.js";
+import { derivedFromGraph } from "../derived.js";
+import { classifyDirEntry, safeReaddir, safeStat } from "../fs-safe.js";
 import { getSharedColocationIssue, isPrivateOutsideOwner, resolveLayerDirectories, } from "./owners.js";
-import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "./scope.js";
+import { isSourceFile, isTestFile, matchesIgnore, SKIP_DIRS, } from "../scope.js";
 const singletonStatsByGraph = derivedFromGraph(() => new Map());
 const STYLESHEET_EXTS = [".css", ".scss", ".sass", ".less", ".styl"];
 function isStylesheet(filePath) {

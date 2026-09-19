@@ -1,4 +1,4 @@
-import type { Graph } from "./graph.js";
+import type { Graph } from "../graph.js";
 import type { Subject } from "./subject.js";
 export interface SingletonDirectoryStats {
     sourceCount: number;

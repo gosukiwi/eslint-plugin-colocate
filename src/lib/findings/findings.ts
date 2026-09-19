@@ -1,8 +1,8 @@
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import { derivedFromGraph } from "./derived.js";
-import { classifyDirEntry, safeReaddir, safeStat } from "./fs-safe.js";
-import type { Graph } from "./graph.js";
+import { derivedFromGraph } from "../derived.js";
+import { classifyDirEntry, safeReaddir, safeStat } from "../fs-safe.js";
+import type { Graph } from "../graph.js";
 import {
   getSharedColocationIssue,
   isPrivateOutsideOwner,
@@ -14,7 +14,7 @@ import {
   isTestFile,
   matchesIgnore,
   SKIP_DIRS,
-} from "./scope.js";
+} from "../scope.js";
 import type { Subject } from "./subject.js";
 
 export interface SingletonDirectoryStats {
@@ -101,8 +101,7 @@ export function singletonDirectoryStats(
     return cached;
   }
   const sourceCount = countSourceFilesRecursive(dir, rootDir, ignore);
-  const hasStylesheet =
-    sourceCount === 1 && hasCompanionStylesheet(dir);
+  const hasStylesheet = sourceCount === 1 && hasCompanionStylesheet(dir);
   const stats: SingletonDirectoryStats = { sourceCount, hasStylesheet };
   cache.set(dir, stats);
   return stats;

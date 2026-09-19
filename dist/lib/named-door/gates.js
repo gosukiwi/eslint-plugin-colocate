@@ -1,6 +1,6 @@
 import path from "node:path";
-import { derivedFromGraph } from "./derived.js";
-import { isInsideDir } from "./paths.js";
+import { derivedFromGraph } from "../derived.js";
+import { isInsideDir } from "../paths.js";
 export function isEntryFile(filePath) {
     const base = path.basename(filePath, path.extname(filePath));
     return base === "index" || base === path.basename(path.dirname(filePath));

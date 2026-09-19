@@ -3,8 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { Rule } from "eslint";
 import { afterEach, describe, expect, it } from "vitest";
-import { REVALIDATE_AFTER_MS } from "../src/lib/graph-cache.js";
-import { resolveSubject, resolvedLintRoot } from "../src/lib/subject.js";
+import {
+  REVALIDATE_AFTER_MS,
+  resolveSubject,
+  resolvedLintRoot,
+} from "../src/lib/findings/index.js";
 
 const created: string[] = [];
 
@@ -76,10 +79,7 @@ describe("resolveSubject", () => {
     expect(entrySubject).toBeDefined();
     const g1 = entrySubject!.graph();
 
-    fs.writeFileSync(
-      path.join(base, "src/b.ts"),
-      "export const b = 2;\n",
-    );
+    fs.writeFileSync(path.join(base, "src/b.ts"), "export const b = 2;\n");
     await new Promise((r) => setTimeout(r, REVALIDATE_AFTER_MS + 50));
 
     const secondSubject = resolveSubject(ctx);
@@ -135,10 +135,7 @@ describe("resolveSubject", () => {
     const base = tempDir("subject-root-");
     writeSrcTree(base);
     fs.mkdirSync(path.join(base, "other"), { recursive: true });
-    fs.writeFileSync(
-      path.join(base, "other/a.ts"),
-      "export const a = 1;\n",
-    );
+    fs.writeFileSync(path.join(base, "other/a.ts"), "export const a = 1;\n");
     const cwd = base;
     const filename = path.join(base, "src/a.ts");
     const token = {};

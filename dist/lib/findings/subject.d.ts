@@ -1,5 +1,5 @@
 import type { Rule } from "eslint";
-import type { Graph } from "./graph.js";
+import type { Graph } from "../graph.js";
 export interface Subject {
     readonly rootDir: string;
     readonly realRootDir: string;

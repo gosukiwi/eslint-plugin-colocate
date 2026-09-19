@@ -18,7 +18,7 @@ Declaring a layer gives up private-file reporting for those children. That is th
 
 `layers: ["*"]` matches every top-level directory under `root`. Do not treat that as a no-op.
 
-A layer directory created mid-session is picked up because it rebuilds the graph — but only once a file *inside it* is the one being linted, which is a tracked issue rather than intended behaviour.
+A layer directory created mid-session is picked up because it rebuilds the graph — but only once a file _inside it_ is the one being linted, which is a tracked issue rather than intended behaviour.
 
 ## `ignore`
 

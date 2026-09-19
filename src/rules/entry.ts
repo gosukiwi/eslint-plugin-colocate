@@ -1,12 +1,19 @@
 import path from "node:path";
 import type { Rule } from "eslint";
 import type * as ESTree from "estree";
-import { findCrossedGate, type CrossedGate } from "../lib/gates.js";
-import { canonicalGraphPath, getGraphResolutionSettings } from "../lib/graph.js";
-import { isNamedDoor, namedDoorReexports } from "../lib/named-door.js";
+import {
+  findCrossedGate,
+  isNamedDoor,
+  namedDoorReexports,
+  type CrossedGate,
+} from "../lib/named-door/index.js";
+import {
+  canonicalGraphPath,
+  getGraphResolutionSettings,
+} from "../lib/graph.js";
 import { requireIsShadowed } from "../lib/require-binding.js";
 import { resolveSpecifier } from "../lib/resolve.js";
-import { resolveSubject, type Subject } from "../lib/subject.js";
+import { resolveSubject, type Subject } from "../lib/findings/index.js";
 
 function staticSpecifier(source: ESTree.Node): string | undefined {
   if (source.type === "Literal") {
@@ -97,10 +104,7 @@ const rule: Rule.RuleModule = {
             subject.file,
             subject.graph(),
             context.sourceCode.getText(),
-          ).map((reexport) => [
-            reexport.pos,
-            reexport.target,
-          ]),
+          ).map((reexport) => [reexport.pos, reexport.target]),
         )
       : undefined;
 

@@ -3,7 +3,7 @@ import ts from "typescript";
 import { derivedFromGraph } from "./derived.js";
 import { safeReadFile, safeRealpath } from "./fs-safe.js";
 import { extractSpecifiers } from "./parse.js";
-import { createResolutionSettings, resolveSpecifier } from "./resolve.js";
+import { createResolutionSettings, resolveSpecifier, } from "./resolve.js";
 import { collectSourceFiles } from "./walk.js";
 const graphFileSet = derivedFromGraph((graph) => new Set(graph.files));
 export function graphHasFile(graph, filePath) {
@@ -54,7 +54,7 @@ function noProjectResolutionSettings() {
         configPaths: [],
     };
 }
-export const getGraphResolutionSettings = derivedFromGraph((_graph) => noProjectResolutionSettings());
+export const getGraphResolutionSettings = derivedFromGraph(() => noProjectResolutionSettings());
 export function buildGraph(rootDir, ignoreGlobs) {
     return buildGraphWithConfigs(rootDir, ignoreGlobs).graph;
 }

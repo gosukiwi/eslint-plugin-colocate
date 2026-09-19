@@ -31,7 +31,9 @@ export function parseSourceFile(
   );
 }
 
-export function stringLiteralText(node: ts.Node | undefined): string | undefined {
+export function stringLiteralText(
+  node: ts.Node | undefined,
+): string | undefined {
   if (node !== undefined && ts.isStringLiteralLike(node)) {
     return node.text;
   }
@@ -66,10 +68,7 @@ function importedSpecifier(
   return undefined;
 }
 
-export function extractSpecifiers(
-  content: string,
-  fileName: string,
-): string[] {
+export function extractSpecifiers(content: string, fileName: string): string[] {
   const sourceFile = parseSourceFile(fileName, content);
   const specifiers: string[] = [];
 

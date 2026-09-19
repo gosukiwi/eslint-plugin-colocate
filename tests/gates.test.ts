@@ -1,7 +1,11 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Graph } from "../src/lib/graph.js";
-import { findCrossedGate, getGates, isEntryFile } from "../src/lib/gates.js";
+import {
+  findCrossedGate,
+  getGates,
+  isEntryFile,
+} from "../src/lib/named-door/index.js";
 
 const root = path.join(path.sep, "p", "src");
 const at = (...parts: string[]): string => path.join(root, ...parts);
@@ -30,12 +34,20 @@ describe("isEntryFile", () => {
 
 describe("getGates", () => {
   it("maps each directory holding an entry to that entry", () => {
-    const graph = graphOf(at("Feature", "Feature.ts"), at("Feature", "helper.ts"));
-    expect(getGates(graph).get(at("Feature"))).toBe(at("Feature", "Feature.ts"));
+    const graph = graphOf(
+      at("Feature", "Feature.ts"),
+      at("Feature", "helper.ts"),
+    );
+    expect(getGates(graph).get(at("Feature"))).toBe(
+      at("Feature", "Feature.ts"),
+    );
   });
 
   it("prefers index when a directory has two doors", () => {
-    const graph = graphOf(at("Feature", "Feature.ts"), at("Feature", "index.ts"));
+    const graph = graphOf(
+      at("Feature", "Feature.ts"),
+      at("Feature", "index.ts"),
+    );
     expect(getGates(graph).get(at("Feature"))).toBe(at("Feature", "index.ts"));
   });
 
@@ -55,7 +67,10 @@ describe("getGates", () => {
   });
 
   it("picks the first index spelling in sorted order when both exist", () => {
-    const graph = graphOf(at("Feature", "index.ts"), at("Feature", "index.tsx"));
+    const graph = graphOf(
+      at("Feature", "index.ts"),
+      at("Feature", "index.tsx"),
+    );
     expect(getGates(graph).get(at("Feature"))).toBe(at("Feature", "index.ts"));
   });
 });
@@ -83,7 +98,12 @@ describe("findCrossedGate", () => {
 
   it("allows an entry file as a target", () => {
     expect(
-      findCrossedGate(at("Outer", "Inner", "Inner.ts"), at("app.ts"), graph, root),
+      findCrossedGate(
+        at("Outer", "Inner", "Inner.ts"),
+        at("app.ts"),
+        graph,
+        root,
+      ),
     ).toBeUndefined();
   });
 
@@ -112,7 +132,11 @@ describe("findCrossedGate", () => {
   });
 
   it("finds nothing when no directory on the path has an entry", () => {
-    const flat = graphOf(at("tabs", "One.ts"), at("tabs", "Two.ts"), at("app.ts"));
+    const flat = graphOf(
+      at("tabs", "One.ts"),
+      at("tabs", "Two.ts"),
+      at("app.ts"),
+    );
     expect(
       findCrossedGate(at("tabs", "One.ts"), at("app.ts"), flat, root),
     ).toBeUndefined();
@@ -123,7 +147,12 @@ describe("findCrossedGate", () => {
     const atRoot = (name: string): string => path.join(fsRoot, name);
     const rooted = graphOf(atRoot("index.ts"), atRoot("other.ts"));
     expect(
-      findCrossedGate(atRoot("other.ts"), atRoot("importer.ts"), rooted, fsRoot),
+      findCrossedGate(
+        atRoot("other.ts"),
+        atRoot("importer.ts"),
+        rooted,
+        fsRoot,
+      ),
     ).toBeUndefined();
   });
 

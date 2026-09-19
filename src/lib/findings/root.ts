@@ -1,5 +1,5 @@
 import path from "node:path";
-import { safeStat } from "./fs-safe.js";
+import { safeStat } from "../fs-safe.js";
 
 function isProjectBoundary(dir: string): boolean {
   return (

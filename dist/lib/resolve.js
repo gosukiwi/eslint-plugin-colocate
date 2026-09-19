@@ -128,7 +128,9 @@ function aliasCandidates(specifier, options) {
         const targetStar = target.indexOf("*");
         const mapped = targetStar === -1
             ? target
-            : target.slice(0, targetStar) + matched + target.slice(targetStar + 1);
+            : target.slice(0, targetStar) +
+                matched +
+                target.slice(targetStar + 1);
         return path.resolve(base, mapped);
     });
 }

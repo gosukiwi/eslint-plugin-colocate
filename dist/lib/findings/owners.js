@@ -1,13 +1,13 @@
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
-import { derivedFromGraph } from "./derived.js";
-import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
-import { canonicalGraphPath, getGraphResolutionSettings, graphFilesInDir, } from "./graph.js";
-import { parseSourceFile } from "./parse.js";
-import { isInsideDir } from "./paths.js";
-import { resolveSpecifier } from "./resolve.js";
-import { SKIP_DIRS } from "./scope.js";
+import { derivedFromGraph } from "../derived.js";
+import { safeReadFile, safeReaddir, safeRealpath } from "../fs-safe.js";
+import { canonicalGraphPath, getGraphResolutionSettings, graphFilesInDir, } from "../graph.js";
+import { parseSourceFile } from "../parse.js";
+import { isInsideDir } from "../paths.js";
+import { resolveSpecifier } from "../resolve.js";
+import { SKIP_DIRS } from "../scope.js";
 const reExportsByGraph = derivedFromGraph(() => new Map());
 function scanReExports(indexFile, dir, graph) {
     const content = safeReadFile(indexFile);
@@ -55,7 +55,7 @@ function isNamespaceBarrel(filePath, graph) {
     if (basename !== "index") {
         return false;
     }
-    return (collectReExports(filePath, path.dirname(filePath), graph).length >= 2);
+    return collectReExports(filePath, path.dirname(filePath), graph).length >= 2;
 }
 function isOwnerEntryFile(file, dir, graph) {
     if (path.dirname(file) !== dir) {

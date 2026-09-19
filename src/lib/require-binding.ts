@@ -43,9 +43,7 @@ function bindsName(name: ts.BindingName, target: string): boolean {
   );
 }
 
-function declarationBindsRequire(
-  declaration: ts.VariableDeclaration,
-): boolean {
+function declarationBindsRequire(declaration: ts.VariableDeclaration): boolean {
   if (!bindsName(declaration.name, REQUIRE)) {
     return false;
   }
@@ -54,9 +52,7 @@ function declarationBindsRequire(
 
 function statementBindsRequire(statement: ts.Statement): boolean {
   if (ts.isVariableStatement(statement)) {
-    return statement.declarationList.declarations.some(
-      declarationBindsRequire,
-    );
+    return statement.declarationList.declarations.some(declarationBindsRequire);
   }
   return (
     ts.isFunctionDeclaration(statement) && statement.name?.text === REQUIRE

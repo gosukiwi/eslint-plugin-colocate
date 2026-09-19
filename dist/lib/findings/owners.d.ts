@@ -1,4 +1,4 @@
-import { type Graph } from "./graph.js";
+import { type Graph } from "../graph.js";
 export interface OwnershipContext {
     graph: Graph;
     rootDir: string;

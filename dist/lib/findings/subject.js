@@ -1,8 +1,8 @@
 import path from "node:path";
-import { safeRealpath } from "./fs-safe.js";
+import { safeRealpath } from "../fs-safe.js";
 import { getGraph } from "./graph-cache.js";
 import { resolveRootDir } from "./root.js";
-import { isInGraphScope, isSourceFile } from "./scope.js";
+import { isInGraphScope, isSourceFile } from "../scope.js";
 const resolvedLintRoots = new Map();
 const fileRealpathsByParse = new WeakMap();
 export function resolvedLintRoot(cwd, rootOption) {

@@ -9,9 +9,10 @@ const CONFIGS = Number(process.env.CONFIGS ?? 200);
 
 let seed = Number(process.env.SEED ?? 987654);
 const rnd = (): number =>
-  ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
-const range = (a: number, b: number): number => a + Math.floor(rnd() * (b - a + 1));
+const range = (a: number, b: number): number =>
+  a + Math.floor(rnd() * (b - a + 1));
 
 const OWNER_DIRS = [
   "features/A",
@@ -116,7 +117,10 @@ async function reportsFor(
           "p/ownership": ["error", options],
           "p/entry": [
             "error",
-            { root: options.root, ...(options.ignore ? { ignore: options.ignore } : {}) },
+            {
+              root: options.root,
+              ...(options.ignore ? { ignore: options.ignore } : {}),
+            },
           ],
         },
         languageOptions: {
@@ -180,7 +184,8 @@ for (let n = 0; n < CONFIGS; n += 1) {
   const barrelInOwner = rnd() < 0.4;
 
   const options: Record<string, unknown> = { root: "src" };
-  if (rnd() < 0.3) options.layers = [pick(["features", "pages", "src/features"])];
+  if (rnd() < 0.3)
+    options.layers = [pick(["features", "pages", "src/features"])];
   if (rnd() < 0.2) options.ignore = [pick(["**/*.generated.ts", "gen"])];
 
   const placements = new Set<string>([

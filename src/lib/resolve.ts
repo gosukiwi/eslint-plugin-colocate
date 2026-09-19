@@ -40,8 +40,7 @@ function loadCompilerOptions(rootDir: string): {
   }
 
   const configFile = parsed.options.configFile as
-    | { extendedSourceFiles?: string[] }
-    | undefined;
+    { extendedSourceFiles?: string[] } | undefined;
   return {
     options: parsed.options,
     configPaths: [configPath, ...(configFile?.extendedSourceFiles ?? [])],
@@ -179,7 +178,9 @@ function aliasCandidates(
       const mapped =
         targetStar === -1
           ? target
-          : target.slice(0, targetStar) + matched + target.slice(targetStar + 1);
+          : target.slice(0, targetStar) +
+            matched +
+            target.slice(targetStar + 1);
       return path.resolve(base, mapped);
     });
 }

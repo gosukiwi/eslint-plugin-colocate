@@ -1,11 +1,11 @@
 import path from "node:path";
 import ts from "typescript";
 import { isEntryFile } from "./gates.js";
-import { safeReadFile } from "./fs-safe.js";
-import { canonicalGraphPath, getGraphResolutionSettings, graphHasFile, } from "./graph.js";
-import { parseSourceFile, stringLiteralText } from "./parse.js";
-import { scopeBindsRequire } from "./require-binding.js";
-import { resolveSpecifier } from "./resolve.js";
+import { safeReadFile } from "../fs-safe.js";
+import { canonicalGraphPath, getGraphResolutionSettings, graphHasFile, } from "../graph.js";
+import { parseSourceFile, stringLiteralText } from "../parse.js";
+import { scopeBindsRequire } from "../require-binding.js";
+import { resolveSpecifier } from "../resolve.js";
 export function isNamedDoor(filePath) {
     if (!isEntryFile(filePath)) {
         return false;
@@ -321,9 +321,7 @@ export function namedDoorReexports(filePath, graph, content) {
     if (!isNamedDoor(filePath)) {
         return [];
     }
-    const source = typeof content === "string"
-        ? content
-        : safeReadFile(filePath);
+    const source = typeof content === "string" ? content : safeReadFile(filePath);
     if (source === undefined) {
         return [];
     }

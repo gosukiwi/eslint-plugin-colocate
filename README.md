@@ -121,14 +121,14 @@ For a longer bootstrap chain (`main → router → App → pages/...`), or a she
 
 ## What it reports
 
-*This covers `colocate/ownership`'s findings. `colocate/entry` reports `reachesPastEntry` and `namedDoorReexport` — see [The entry rule](#the-entry-rule).*
+_This covers `colocate/ownership`'s findings. `colocate/entry` reports `reachesPastEntry` and `namedDoorReexport` — see [The entry rule](#the-entry-rule)._
 
-| message | meaning | usual fix |
-| --- | --- | --- |
-| `privateOutsideOwner` | One owner imports this file, and it sits outside that owner's folder. | Move it inside the folder, or convert the owner into a folder with a matching entry file. |
-| `sharedTooHigh` | Several owners import it, and it sits above their common ancestor. | Move it down to the common ancestor. |
-| `sharedInsideOwner` | Several owners import it, and it sits inside one of theirs. | Hoist it to the common ancestor. |
-| `singletonFolder` | A directory holds a single source file named after the directory (or `index`), and no stylesheet beside it. | Flatten the directory, or colocate something with the file. |
+| message               | meaning                                                                                                     | usual fix                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `privateOutsideOwner` | One owner imports this file, and it sits outside that owner's folder.                                       | Move it inside the folder, or convert the owner into a folder with a matching entry file. |
+| `sharedTooHigh`       | Several owners import it, and it sits above their common ancestor.                                          | Move it down to the common ancestor.                                                      |
+| `sharedInsideOwner`   | Several owners import it, and it sits inside one of theirs.                                                 | Hoist it to the common ancestor.                                                          |
+| `singletonFolder`     | A directory holds a single source file named after the directory (or `index`), and no stylesheet beside it. | Flatten the directory, or colocate something with the file.                               |
 
 `singletonFolder` looks for a companion stylesheet only in the same directory (`.css`, `.scss`, `.sass`, `.less`, `.styl`).
 
@@ -136,7 +136,7 @@ An `index` that re-exports two or more siblings is a namespace barrel and is lef
 
 ## Options
 
-*These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options.* Unknown option names are rejected.
+_These apply to `colocate/ownership`. See [The entry rule](#the-entry-rule) for `colocate/entry`'s options._ Unknown option names are rejected.
 
 ### `root`
 
@@ -155,7 +155,7 @@ Only the layer's own files and each child folder's entry (`Button/Button.ts` or 
 This is also how a deeper app shell is described:
 
 ```js
-layers: ["src", "src/pages"] // top-level modules and pages are public peers
+layers: ["src", "src/pages"]; // top-level modules and pages are public peers
 ```
 
 ### `ignore`

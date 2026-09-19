@@ -1,7 +1,7 @@
 import path from "node:path";
-import { derivedFromGraph } from "./derived.js";
-import type { Graph } from "./graph.js";
-import { isInsideDir } from "./paths.js";
+import { derivedFromGraph } from "../derived.js";
+import type { Graph } from "../graph.js";
+import { isInsideDir } from "../paths.js";
 
 export function isEntryFile(filePath: string): boolean {
   const base = path.basename(filePath, path.extname(filePath));

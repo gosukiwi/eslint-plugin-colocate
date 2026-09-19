@@ -30,7 +30,9 @@ function tempProject(files: Record<string, string>): string {
 
 describe("robustness", () => {
   it("stays silent instead of throwing when the configured root is missing", async () => {
-    const messages = await lintFixture("missing-root", { root: "src" }, ["lib"]);
+    const messages = await lintFixture("missing-root", { root: "src" }, [
+      "lib",
+    ]);
     expect(messages).toEqual([]);
   });
 
@@ -39,9 +41,12 @@ describe("robustness", () => {
       path.dirname(new URL(import.meta.url).pathname),
       "fixtures/private-sibling",
     );
-    const results = await makeESLint(cwd).lintText("export const ghost = 1;\n", {
-      filePath: path.join(cwd, "src/pages/ghost.ts"),
-    });
+    const results = await makeESLint(cwd).lintText(
+      "export const ghost = 1;\n",
+      {
+        filePath: path.join(cwd, "src/pages/ghost.ts"),
+      },
+    );
     expect(collectMessages(cwd, results)).toEqual([]);
   });
 
@@ -107,7 +112,8 @@ describe("robustness", () => {
       "src/repo/app/main.ts": 'import "./App";\n',
       "src/repo/app/App.ts": 'import "./MyPage/MyPage";\n',
       "src/repo/app/helper.ts": "export const h = 1;\n",
-      "src/repo/app/MyPage/MyPage.ts": 'import "../helper";\nexport const p = 1;\n',
+      "src/repo/app/MyPage/MyPage.ts":
+        'import "../helper";\nexport const p = 1;\n',
     });
     const cwd = path.join(outer, "src/repo");
     try {
@@ -189,9 +195,13 @@ describe("robustness", () => {
     });
     try {
       for (const rule of ["ownership", "entry"] as const) {
-        const results = await makeESLint(dir, { root: "src" }, {
-          rule,
-        }).lintFiles(["src"]);
+        const results = await makeESLint(
+          dir,
+          { root: "src" },
+          {
+            rule,
+          },
+        ).lintFiles(["src"]);
         expect(collectRuleMessages(dir, results, rule)).toEqual([]);
       }
     } finally {
@@ -205,19 +215,26 @@ describe("robustness", () => {
         '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": [null, "src/*"] } } }',
       "src/main.ts": 'import "./App";\n',
       "src/App.ts": 'import "@/pages/MyPage/MyPage";\n',
-      "src/pages/MyPage/MyPage.ts": 'import "@/pages/helper";\nexport const page = 1;\n',
+      "src/pages/MyPage/MyPage.ts":
+        'import "@/pages/helper";\nexport const page = 1;\n',
       "src/pages/helper.ts": "export const h = 1;\n",
     });
     try {
-      const results = await makeESLint(dir, { root: "src" }, {
-        rule: "ownership",
-      }).lintFiles(["src"]);
+      const results = await makeESLint(
+        dir,
+        { root: "src" },
+        {
+          rule: "ownership",
+        },
+      ).lintFiles(["src"]);
       expect(
         sortMessages(
-          collectRuleMessages(dir, results, "ownership").map(({ file, messageId }) => ({
-            file,
-            messageId,
-          })),
+          collectRuleMessages(dir, results, "ownership").map(
+            ({ file, messageId }) => ({
+              file,
+              messageId,
+            }),
+          ),
         ),
       ).toEqual([
         { file: "src/pages/helper.ts", messageId: "privateOutsideOwner" },

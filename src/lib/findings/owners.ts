@@ -1,18 +1,18 @@
 import path from "node:path";
 import { minimatch } from "minimatch";
 import ts from "typescript";
-import { derivedFromGraph } from "./derived.js";
-import { safeReadFile, safeReaddir, safeRealpath } from "./fs-safe.js";
+import { derivedFromGraph } from "../derived.js";
+import { safeReadFile, safeReaddir, safeRealpath } from "../fs-safe.js";
 import {
   canonicalGraphPath,
   getGraphResolutionSettings,
   graphFilesInDir,
   type Graph,
-} from "./graph.js";
-import { parseSourceFile } from "./parse.js";
-import { isInsideDir } from "./paths.js";
-import { resolveSpecifier } from "./resolve.js";
-import { SKIP_DIRS } from "./scope.js";
+} from "../graph.js";
+import { parseSourceFile } from "../parse.js";
+import { isInsideDir } from "../paths.js";
+import { resolveSpecifier } from "../resolve.js";
+import { SKIP_DIRS } from "../scope.js";
 
 export interface OwnershipContext {
   graph: Graph;
@@ -22,11 +22,7 @@ export interface OwnershipContext {
 
 const reExportsByGraph = derivedFromGraph(() => new Map<string, string[]>());
 
-function scanReExports(
-  indexFile: string,
-  dir: string,
-  graph: Graph,
-): string[] {
+function scanReExports(indexFile: string, dir: string, graph: Graph): string[] {
   const content = safeReadFile(indexFile);
   const realDir = safeRealpath(dir);
   const realIndex = safeRealpath(indexFile);
@@ -84,9 +80,7 @@ function isNamespaceBarrel(filePath: string, graph: Graph): boolean {
   if (basename !== "index") {
     return false;
   }
-  return (
-    collectReExports(filePath, path.dirname(filePath), graph).length >= 2
-  );
+  return collectReExports(filePath, path.dirname(filePath), graph).length >= 2;
 }
 
 function isOwnerEntryFile(file: string, dir: string, graph: Graph): boolean {
@@ -116,7 +110,11 @@ export interface Owner {
   path: string;
 }
 
-export function getOwner(filePath: string, graph: Graph, rootDir: string): Owner {
+export function getOwner(
+  filePath: string,
+  graph: Graph,
+  rootDir: string,
+): Owner {
   let dir = path.dirname(filePath);
   const realRoot = safeRealpath(rootDir) ?? rootDir;
 

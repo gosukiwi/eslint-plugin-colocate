@@ -1,10 +1,10 @@
 import path from "node:path";
 import type { Rule } from "eslint";
-import { safeRealpath } from "./fs-safe.js";
+import { safeRealpath } from "../fs-safe.js";
 import { getGraph } from "./graph-cache.js";
-import type { Graph } from "./graph.js";
+import type { Graph } from "../graph.js";
 import { resolveRootDir } from "./root.js";
-import { isInGraphScope, isSourceFile } from "./scope.js";
+import { isInGraphScope, isSourceFile } from "../scope.js";
 
 export interface Subject {
   readonly rootDir: string;

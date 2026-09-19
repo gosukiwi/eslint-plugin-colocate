@@ -10,6 +10,8 @@ Consumer-facing usage lives in `README.md`.
 npm test
 npm run typecheck
 npm run build
+npm run lint                         # zero errors and warnings
+npm run format:check                 # Prettier gate; run `npm run format` to fix
 npm run crap                         # coverage + CRAP gate (fails above 15); run after changing src/
 npm run check:placement              # not part of npm test; run after ownership-model changes
 CONFIGS=40 npm run check:placement   # quicker pass
@@ -28,13 +30,13 @@ SEED=<n> npm run check:placement     # reproduce a sweep
 
 ## Read when relevant
 
-| If you are… | Read |
-| --- | --- |
-| Lost, adding a module, or changing how rules talk to the model | [architecture](docs/agents/architecture.md) |
-| Changing owners, shells, layers, barrels, consumers, or ownership reports | [ownership](docs/agents/ownership.md) |
-| Changing gates, `colocate/entry`, or import-boundary visitors | [entry](docs/agents/entry.md) |
-| Changing `root` / `ignore` / `layers` or the options schema | [options](docs/agents/options.md) |
-| Changing the walk, resolution, cache, or filesystem degradation | [graph](docs/agents/graph.md) |
-| Adding or changing tests or fixtures | [testing](docs/agents/testing.md) |
-| About to change the model (do-not-regress checklist) | [invariants](docs/agents/invariants.md) |
-| Touching a GitHub issue or a graph/gate bug | [known-issues](docs/agents/known-issues.md) |
+| If you are…                                                               | Read                                        |
+| ------------------------------------------------------------------------- | ------------------------------------------- |
+| Lost, adding a module, or changing how rules talk to the model            | [architecture](docs/agents/architecture.md) |
+| Changing owners, shells, layers, barrels, consumers, or ownership reports | [ownership](docs/agents/ownership.md)       |
+| Changing gates, `colocate/entry`, or import-boundary visitors             | [entry](docs/agents/entry.md)               |
+| Changing `root` / `ignore` / `layers` or the options schema               | [options](docs/agents/options.md)           |
+| Changing the walk, resolution, cache, or filesystem degradation           | [graph](docs/agents/graph.md)               |
+| Adding or changing tests or fixtures                                      | [testing](docs/agents/testing.md)           |
+| About to change the model (do-not-regress checklist)                      | [invariants](docs/agents/invariants.md)     |
+| Touching a GitHub issue or a graph/gate bug                               | [known-issues](docs/agents/known-issues.md) |
