@@ -1,2 +1,3 @@
 import "./lib/lib.js";
-import "./shared/helper.js";
+import "./lib/helper-buried.js";
+import "./helper-at-lca.js";

@@ -301,6 +301,9 @@ export function isPrivateOutsideOwner(filePath, ctx) {
     if (owners.size !== 1) {
         return false;
     }
+    if (collectExtraShellOwners(filePath, ctx, owners).size >= 2) {
+        return false;
+    }
     const owner = owners.values().next().value;
     if (owner === undefined) {
         return false;
@@ -365,9 +368,6 @@ function collectExtraShellOwners(filePath, ctx, counted) {
     }
     return extra;
 }
-function shellVoicesMakeShared(filePath, ctx, counted) {
-    return collectExtraShellOwners(filePath, ctx, counted).size >= 2;
-}
 function evaluateSharedPosition(filePath, ctx, owners) {
     const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
     const lca = longestCommonAncestor(ownerDirs);
@@ -403,8 +403,15 @@ export function getSharedColocationIssue(filePath, ctx) {
     if (owners.size >= 2) {
         return evaluateSharedPosition(filePath, ctx, owners);
     }
-    if (owners.size === 1 && shellVoicesMakeShared(filePath, ctx, owners)) {
-        return evaluateSharedPosition(filePath, ctx, owners);
+    if (owners.size === 1) {
+        const extra = collectExtraShellOwners(filePath, ctx, owners);
+        if (extra.size >= 2) {
+            const merged = new Map(owners);
+            for (const [ownerPath, owner] of extra) {
+                merged.set(ownerPath, owner);
+            }
+            return evaluateSharedPosition(filePath, ctx, merged);
+        }
     }
     return undefined;
 }
