@@ -8,7 +8,7 @@ The graph asks, for each file: who depends on me, and does my location reflect t
 
 **Shared.** Two or more owners import it → it belongs at their closest common ancestor directory, not above it, and not inside an owner folder _below_ that ancestor. Sitting inside a folder at or above the LCA is fine. A folder's own entry is never flagged for sitting in its own folder; if the _folder_ is misplaced, folders above it report it.
 
-**Shell.** Entry points (nothing imports them) plus what they import **directly** are shell: they do not own what they import. `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` alone with no config. Entry points are detected per strongly connected component (iterative Tarjan), so `main ↔ App` or a self-import still yields a shell.
+**Shell.** Entry points (nothing imports them) plus what they import **directly** are shell: they do not own what they import. `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` alone with no config. Entry points are detected per strongly connected component (iterative Tarjan), so `main ↔ App` or a self-import still yields a shell. Shell importers count as extra owner-voices for shared placement: one counted owner plus shell importers from two or more distinct other owners reports shared, never private; a single shell co-user stays private (`shell-shared-helper` vs `shell-single-couser` fixtures).
 
 Shell exemption is **not transitive** and **not configurable**. There is no `shells` option (it was removed). Longer bootstrap (`main → router → App → pages/...`) is expressed with `layers`. Do not add a wholesale shell-import exemption: it would hide a shell reaching past a feature entry into internals (`shell-reaches-internals` fixture).
 

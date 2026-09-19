@@ -165,7 +165,6 @@ export function ownershipFindings(
   if (isPrivateOutsideOwner(file, ctx)) {
     findings.push("privateOutsideOwner");
   }
-
   const sharedIssue = getSharedColocationIssue(file, ctx);
   if (sharedIssue !== undefined) {
     findings.push(sharedIssue);

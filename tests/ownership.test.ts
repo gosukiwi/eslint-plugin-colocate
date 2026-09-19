@@ -260,6 +260,29 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("stays silent for a shell-shared helper at the merged owners' common ancestor", async () => {
+    const messages = await lintFixture("shell-shared-helper");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/lib/helper-buried.ts", messageId: "sharedInsideOwner" },
+    ]);
+  });
+
+  it("stays private when two shell importers share one folder owner", async () => {
+    const messages = await lintFixture("shell-shells-one-voice");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/lib/lib.ts", messageId: "singletonFolder" },
+      { file: "src/other/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
+  it("still reports privateOutsideOwner when only one shell co-user exists", async () => {
+    const messages = await lintFixture("shell-single-couser");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/lib/lib.ts", messageId: "singletonFolder" },
+      { file: "src/shared/helper.ts", messageId: "privateOutsideOwner" },
+    ]);
+  });
+
   it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
     const messages = await lintFixture("shared-too-high");
     expect(sortMessages(messages)).toEqual([

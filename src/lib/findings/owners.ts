@@ -302,15 +302,32 @@ export const getShells = derivedFromGraph((graph) => {
   return shells;
 });
 
+function partitionImporters(
+  filePath: string,
+  graph: Graph,
+  shells: Set<string>,
+): { consumers: string[]; shellVoices: string[] } {
+  const consumers: string[] = [];
+  const shellVoices: string[] = [];
+  for (const importer of graph.importers.get(filePath) ?? []) {
+    if (isNamespaceBarrel(importer, graph)) {
+      continue;
+    }
+    if (shells.has(importer)) {
+      shellVoices.push(importer);
+    } else {
+      consumers.push(importer);
+    }
+  }
+  return { consumers, shellVoices };
+}
+
 export function getColocationConsumers(
   filePath: string,
   graph: Graph,
   shells: Set<string>,
 ): string[] {
-  const importers = graph.importers.get(filePath) ?? [];
-  return importers.filter(
-    (importer) => !shells.has(importer) && !isNamespaceBarrel(importer, graph),
-  );
+  return partitionImporters(filePath, graph, shells).consumers;
 }
 
 function collectLayerDirs(
@@ -446,6 +463,10 @@ export function isPrivateOutsideOwner(
     return false;
   }
 
+  if (collectExtraShellOwners(filePath, ctx, owners).size >= 2) {
+    return false;
+  }
+
   const owner = owners.values().next().value;
   if (owner === undefined) {
     return false;
@@ -505,19 +526,35 @@ function folderOwnerAncestors(
   return dirs;
 }
 
-export function getSharedColocationIssue(
+function shellVoiceImporters(
+  filePath: string,
+  graph: Graph,
+  shells: Set<string>,
+): string[] {
+  return partitionImporters(filePath, graph, shells).shellVoices;
+}
+
+function collectExtraShellOwners(
   filePath: string,
   ctx: OwnershipContext,
+  countedOwners: Map<string, Owner>,
+): Map<string, Owner> {
+  const shells = getShells(ctx.graph);
+  const extra = new Map<string, Owner>();
+  for (const importer of shellVoiceImporters(filePath, ctx.graph, shells)) {
+    const owner = getOwner(importer, ctx.graph, ctx.rootDir);
+    if (!countedOwners.has(owner.path) && !extra.has(owner.path)) {
+      extra.set(owner.path, owner);
+    }
+  }
+  return extra;
+}
+
+function evaluateSharedPosition(
+  filePath: string,
+  ctx: OwnershipContext,
+  owners: Map<string, Owner>,
 ): "sharedTooHigh" | "sharedInsideOwner" | undefined {
-  if (shouldSkipColocation(filePath, ctx)) {
-    return undefined;
-  }
-
-  const owners = collectConsumerOwners(filePath, ctx);
-  if (owners.size < 2) {
-    return undefined;
-  }
-
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
 
@@ -545,6 +582,28 @@ export function getSharedColocationIssue(
 
   if (!isInsideDir(filePath, lca)) {
     return "sharedTooHigh";
+  }
+  return undefined;
+}
+
+export function getSharedColocationIssue(
+  filePath: string,
+  ctx: OwnershipContext,
+): "sharedTooHigh" | "sharedInsideOwner" | undefined {
+  if (shouldSkipColocation(filePath, ctx)) {
+    return undefined;
+  }
+
+  const owners = collectConsumerOwners(filePath, ctx);
+  if (owners.size >= 2) {
+    return evaluateSharedPosition(filePath, ctx, owners);
+  }
+  if (owners.size === 1) {
+    const extra = collectExtraShellOwners(filePath, ctx, owners);
+    if (extra.size >= 2) {
+      const merged = new Map([...owners, ...extra]);
+      return evaluateSharedPosition(filePath, ctx, merged);
+    }
   }
   return undefined;
 }
