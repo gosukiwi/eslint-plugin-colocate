@@ -85,12 +85,12 @@ export function ownershipFindings(subject, cwd, layers) {
         isSingletonWrapperDirectory(dir, file, rootDir, ignore, graph)) {
         findings.push("singletonFolder");
     }
-    if (isPrivateOutsideOwner(file, ctx)) {
-        findings.push("privateOutsideOwner");
-    }
     const sharedIssue = getSharedColocationIssue(file, ctx);
     if (sharedIssue !== undefined) {
         findings.push(sharedIssue);
+    }
+    else if (isPrivateOutsideOwner(file, ctx)) {
+        findings.push("privateOutsideOwner");
     }
     return findings;
 }

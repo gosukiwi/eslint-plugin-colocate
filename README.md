@@ -115,7 +115,7 @@ The plugin builds an import graph over `root` and checks that each file's locati
 
 A folder's own entry file is never flagged for sitting in its own folder. If the folder itself is in the wrong place, the folders above it report that.
 
-**The app shell.** Entry points (files nothing imports) and what they import directly do not own those imports. So `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` where it is, with no configuration.
+**The app shell.** Entry points (files nothing imports) and what they import directly do not own those imports. So `main.ts → App.ts → pages/Home/Home.ts` leaves `Home` where it is, with no configuration. Shells still vote on shared placement: one owner plus shell importers from two or more other owners reports shared, never private; a single shell co-user keeps the private verdict.
 
 For a longer bootstrap chain (`main → router → App → pages/...`), or a shell that imports loose top-level modules, declare those directories as `layers`.
 

@@ -350,14 +350,25 @@ function folderOwnerAncestors(filePath, graph, rootDir) {
     }
     return dirs;
 }
-export function getSharedColocationIssue(filePath, ctx) {
-    if (shouldSkipColocation(filePath, ctx)) {
-        return undefined;
+function shellVoiceImporters(filePath, graph, shells) {
+    const importers = graph.importers.get(filePath) ?? [];
+    return importers.filter((importer) => shells.has(importer) && !isNamespaceBarrel(importer, graph));
+}
+function collectExtraShellOwners(filePath, ctx, counted) {
+    const shells = getShells(ctx.graph);
+    const extra = new Map();
+    for (const importer of shellVoiceImporters(filePath, ctx.graph, shells)) {
+        const owner = getOwner(importer, ctx.graph, ctx.rootDir);
+        if (!counted.has(owner.path) && !extra.has(owner.path)) {
+            extra.set(owner.path, owner);
+        }
     }
-    const owners = collectConsumerOwners(filePath, ctx);
-    if (owners.size < 2) {
-        return undefined;
-    }
+    return extra;
+}
+function shellVoicesMakeShared(filePath, ctx, counted) {
+    return collectExtraShellOwners(filePath, ctx, counted).size >= 2;
+}
+function evaluateSharedPosition(filePath, ctx, owners) {
     const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
     const lca = longestCommonAncestor(ownerDirs);
     const consumerFolderDirs = [...owners.values()]
@@ -381,6 +392,19 @@ export function getSharedColocationIssue(filePath, ctx) {
     }
     if (!isInsideDir(filePath, lca)) {
         return "sharedTooHigh";
+    }
+    return undefined;
+}
+export function getSharedColocationIssue(filePath, ctx) {
+    if (shouldSkipColocation(filePath, ctx)) {
+        return undefined;
+    }
+    const owners = collectConsumerOwners(filePath, ctx);
+    if (owners.size >= 2) {
+        return evaluateSharedPosition(filePath, ctx, owners);
+    }
+    if (owners.size === 1 && shellVoicesMakeShared(filePath, ctx, owners)) {
+        return evaluateSharedPosition(filePath, ctx, owners);
     }
     return undefined;
 }
