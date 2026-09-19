@@ -162,11 +162,12 @@ export function ownershipFindings(
     findings.push("singletonFolder");
   }
 
+  if (isPrivateOutsideOwner(file, ctx)) {
+    findings.push("privateOutsideOwner");
+  }
   const sharedIssue = getSharedColocationIssue(file, ctx);
   if (sharedIssue !== undefined) {
     findings.push(sharedIssue);
-  } else if (isPrivateOutsideOwner(file, ctx)) {
-    findings.push("privateOutsideOwner");
   }
 
   return findings;

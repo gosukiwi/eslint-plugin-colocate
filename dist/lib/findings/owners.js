@@ -211,9 +211,24 @@ export const getShells = derivedFromGraph((graph) => {
     }
     return shells;
 });
+function partitionImporters(filePath, graph, shells) {
+    const consumers = [];
+    const shellVoices = [];
+    for (const importer of graph.importers.get(filePath) ?? []) {
+        if (isNamespaceBarrel(importer, graph)) {
+            continue;
+        }
+        if (shells.has(importer)) {
+            shellVoices.push(importer);
+        }
+        else {
+            consumers.push(importer);
+        }
+    }
+    return { consumers, shellVoices };
+}
 export function getColocationConsumers(filePath, graph, shells) {
-    const importers = graph.importers.get(filePath) ?? [];
-    return importers.filter((importer) => !shells.has(importer) && !isNamespaceBarrel(importer, graph));
+    return partitionImporters(filePath, graph, shells).consumers;
 }
 function collectLayerDirs(dir, cwd, rootDir, layerGlobs, out) {
     for (const entry of safeReaddir(dir)) {
@@ -354,15 +369,14 @@ function folderOwnerAncestors(filePath, graph, rootDir) {
     return dirs;
 }
 function shellVoiceImporters(filePath, graph, shells) {
-    const importers = graph.importers.get(filePath) ?? [];
-    return importers.filter((importer) => shells.has(importer) && !isNamespaceBarrel(importer, graph));
+    return partitionImporters(filePath, graph, shells).shellVoices;
 }
-function collectExtraShellOwners(filePath, ctx, counted) {
+function collectExtraShellOwners(filePath, ctx, countedOwners) {
     const shells = getShells(ctx.graph);
     const extra = new Map();
     for (const importer of shellVoiceImporters(filePath, ctx.graph, shells)) {
         const owner = getOwner(importer, ctx.graph, ctx.rootDir);
-        if (!counted.has(owner.path) && !extra.has(owner.path)) {
+        if (!countedOwners.has(owner.path) && !extra.has(owner.path)) {
             extra.set(owner.path, owner);
         }
     }
@@ -406,10 +420,7 @@ export function getSharedColocationIssue(filePath, ctx) {
     if (owners.size === 1) {
         const extra = collectExtraShellOwners(filePath, ctx, owners);
         if (extra.size >= 2) {
-            const merged = new Map(owners);
-            for (const [ownerPath, owner] of extra) {
-                merged.set(ownerPath, owner);
-            }
+            const merged = new Map([...owners, ...extra]);
             return evaluateSharedPosition(filePath, ctx, merged);
         }
     }
