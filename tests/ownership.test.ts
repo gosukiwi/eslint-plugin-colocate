@@ -260,6 +260,14 @@ describe("ownership rule", () => {
     ]);
   });
 
+  it("counts shell importers as extra owner-voices for shared placement", async () => {
+    const messages = await lintFixture("shell-shared-helper");
+    expect(sortMessages(messages)).toEqual([
+      { file: "src/lib/lib.ts", messageId: "singletonFolder" },
+      { file: "src/shared/helper.ts", messageId: "sharedTooHigh" },
+    ]);
+  });
+
   it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
     const messages = await lintFixture("shared-too-high");
     expect(sortMessages(messages)).toEqual([

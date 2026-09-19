@@ -505,19 +505,46 @@ function folderOwnerAncestors(
   return dirs;
 }
 
-export function getSharedColocationIssue(
+function shellVoiceImporters(
+  filePath: string,
+  graph: Graph,
+  shells: Set<string>,
+): string[] {
+  const importers = graph.importers.get(filePath) ?? [];
+  return importers.filter(
+    (importer) => shells.has(importer) && !isNamespaceBarrel(importer, graph),
+  );
+}
+
+function collectExtraShellOwners(
   filePath: string,
   ctx: OwnershipContext,
+  counted: Map<string, Owner>,
+): Map<string, Owner> {
+  const shells = getShells(ctx.graph);
+  const extra = new Map<string, Owner>();
+  for (const importer of shellVoiceImporters(filePath, ctx.graph, shells)) {
+    const owner = getOwner(importer, ctx.graph, ctx.rootDir);
+    if (!counted.has(owner.path) && !extra.has(owner.path)) {
+      extra.set(owner.path, owner);
+    }
+  }
+  return extra;
+}
+
+function shellVoicesMakeShared(
+  filePath: string,
+  ctx: OwnershipContext,
+  counted: Map<string, Owner>,
+): boolean {
+  return collectExtraShellOwners(filePath, ctx, counted).size >= 2;
+}
+
+function evaluateSharedPosition(
+  filePath: string,
+  ctx: OwnershipContext,
+  owners: Map<string, Owner>,
 ): "sharedTooHigh" | "sharedInsideOwner" | undefined {
-  if (shouldSkipColocation(filePath, ctx)) {
-    return undefined;
-  }
-
-  const owners = collectConsumerOwners(filePath, ctx);
-  if (owners.size < 2) {
-    return undefined;
-  }
-
   const ownerDirs = [...new Set([...owners.values()].map(ownerDir))];
   const lca = longestCommonAncestor(ownerDirs);
 
@@ -545,6 +572,24 @@ export function getSharedColocationIssue(
 
   if (!isInsideDir(filePath, lca)) {
     return "sharedTooHigh";
+  }
+  return undefined;
+}
+
+export function getSharedColocationIssue(
+  filePath: string,
+  ctx: OwnershipContext,
+): "sharedTooHigh" | "sharedInsideOwner" | undefined {
+  if (shouldSkipColocation(filePath, ctx)) {
+    return undefined;
+  }
+
+  const owners = collectConsumerOwners(filePath, ctx);
+  if (owners.size >= 2) {
+    return evaluateSharedPosition(filePath, ctx, owners);
+  }
+  if (owners.size === 1 && shellVoicesMakeShared(filePath, ctx, owners)) {
+    return evaluateSharedPosition(filePath, ctx, owners);
   }
   return undefined;
 }
