@@ -167,7 +167,7 @@ describe("ownership rule", () => {
   it("does not treat a file imported by a root and a page as shell", async () => {
     const messages = await lintFixture("mixed-importers", { root: "src" });
     expect(sortMessages(messages)).toEqual([
-      { file: "src/shared/fmt.ts", messageId: "privateOutsideOwner" },
+      { file: "src/pages/A/fmt-buried.ts", messageId: "sharedInsideOwner" },
     ]);
   });
 
@@ -267,20 +267,28 @@ describe("ownership rule", () => {
     ]);
   });
 
-  it("stays private when two shell importers share one folder owner", async () => {
+  it("counts two shell importers from one folder owner as one shared voice", async () => {
     const messages = await lintFixture("shell-shells-one-voice");
     expect(sortMessages(messages)).toEqual([
       { file: "src/lib/lib.ts", messageId: "singletonFolder" },
-      { file: "src/other/helper.ts", messageId: "privateOutsideOwner" },
     ]);
   });
 
-  it("still reports privateOutsideOwner when only one shell co-user exists", async () => {
+  it("treats a single shell co-user as shared, never private", async () => {
     const messages = await lintFixture("shell-single-couser");
     expect(sortMessages(messages)).toEqual([
       { file: "src/lib/lib.ts", messageId: "singletonFolder" },
-      { file: "src/shared/helper.ts", messageId: "privateOutsideOwner" },
     ]);
+  });
+
+  it("stays silent for a shell co-used file at the common ancestor with one counted importer", async () => {
+    const messages = await lintFixture("shell-coowner-one-importer");
+    expect(sortMessages(messages)).toEqual([]);
+  });
+
+  it("stays silent for a shell co-used file at the common ancestor with two counted importers", async () => {
+    const messages = await lintFixture("shell-coowner-two-importers");
+    expect(sortMessages(messages)).toEqual([]);
   });
 
   it("reports sharedTooHigh when a shared file sits above the owners' common ancestor", async () => {
