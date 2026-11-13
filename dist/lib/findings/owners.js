@@ -316,7 +316,7 @@ export function isPrivateOutsideOwner(filePath, ctx) {
     if (owners.size !== 1) {
         return false;
     }
-    if (collectExtraShellOwners(filePath, ctx, owners).size >= 2) {
+    if (collectExtraShellOwners(filePath, ctx, owners).size > 0) {
         return false;
     }
     const owner = owners.values().next().value;
@@ -414,15 +414,15 @@ export function getSharedColocationIssue(filePath, ctx) {
         return undefined;
     }
     const owners = collectConsumerOwners(filePath, ctx);
-    if (owners.size >= 2) {
-        return evaluateSharedPosition(filePath, ctx, owners);
+    if (owners.size === 0) {
+        return undefined;
     }
-    if (owners.size === 1) {
-        const extra = collectExtraShellOwners(filePath, ctx, owners);
-        if (extra.size >= 2) {
-            const merged = new Map([...owners, ...extra]);
-            return evaluateSharedPosition(filePath, ctx, merged);
-        }
+    const merged = new Map([
+        ...owners,
+        ...collectExtraShellOwners(filePath, ctx, owners),
+    ]);
+    if (merged.size < 2) {
+        return undefined;
     }
-    return undefined;
+    return evaluateSharedPosition(filePath, ctx, merged);
 }
