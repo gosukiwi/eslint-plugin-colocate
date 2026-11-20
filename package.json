@@ -33,7 +33,7 @@
     "eslint": ">=9"
   },
   "dependencies": {
-    "minimatch": "^10",
+    "minimatch": "^11.0.9",
     "typescript": "^5 || ^6"
   },
   "devDependencies": {
@@ -42,11 +42,16 @@
     "@gosukiwi/eslint-plugin-colocate": "^0.1.0",
     "@types/node": "^22.15.29",
     "@typescript-eslint/parser": "^8",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^5.1.1",
     "eslint": "^10",
     "prettier": "^3.9.6",
     "typescript": "^5 || ^6",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^3"
+    "vitest": "^5.1.1"
+  },
+  "overrides": {
+    "@gosukiwi/eslint-plugin-colocate": {
+      "minimatch": "$minimatch"
+    }
   }
 }
